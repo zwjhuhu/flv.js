@@ -83,6 +83,10 @@ class FLVDemuxer {
             fps_num: 23976,
             fps_den: 1000
         };
+        
+        this._totalBytes = 0;
+        this._prevTime = 0;
+        this._prevOffset = 0;
 
         this._videoTrack = {type: 'video', id: 1, sequenceNumber: 0, samples: [], length: 0};
         this._audioTrack = {type: 'audio', id: 2, sequenceNumber: 0, samples: [], length: 0};
@@ -286,6 +290,16 @@ class FLVDemuxer {
             }
 
             let dataOffset = offset + 11;
+            
+            this._totalBytes += dataSize;
+            let currentTime = Math.ceil(timestamp / 1e3);
+            let delta = this._totalBytes - this._prevOffset;
+            if (currentTime == this._prevTime + 1)
+                this._recordRealtimeBitrate(currentTime, delta);
+            if (currentTime != this._prevTime) {
+                this._prevOffset = this._totalBytes;
+                this._prevTime = currentTime;
+            }
 
             switch (tagType) {
                 case 8:  // Audio
@@ -315,6 +329,15 @@ class FLVDemuxer {
         }
 
         return offset;  // consumed bytes, just equals latest offset index
+    }
+    
+    _recordRealtimeBitrate(time, dataDelta) {
+        if (this._metadata) {
+            if (!this._mediaInfo.bitrateMap) {
+                this._mediaInfo.bitrateMap = [];
+            }
+            this._mediaInfo.bitrateMap[time - 1] = dataDelta * 8 / 1000;
+        }
     }
 
     _parseScriptData(arrayBuffer, dataOffset, dataSize) {
@@ -377,6 +400,7 @@ class FLVDemuxer {
             }
             this._dispatch = false;
             this._mediaInfo.metadata = onMetaData;
+            this._mediaInfo.bitrateMap = [];
             Log.v(this.TAG, 'Parsed onMetaData');
             if (this._mediaInfo.isComplete()) {
                 this._onMediaInfo(this._mediaInfo);

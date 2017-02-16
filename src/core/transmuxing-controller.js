@@ -284,10 +284,13 @@ class TransmuxingController {
             this._mediaInfo.keyframesIndex = null;
             this._mediaInfo.segments = [];
             this._mediaInfo.segmentCount = this._mediaDataSource.segments.length;
+            this._bitrateMap = [];
             Object.setPrototypeOf(this._mediaInfo, MediaInfo.prototype);
         }
 
         let segmentInfo = Object.assign({}, mediaInfo);
+        this._bitrateMap[this._currentSegmentIndex] = mediaInfo.bitrateMap;
+        segmentInfo.bitrateMap = this._bitrateMap;
         Object.setPrototypeOf(segmentInfo, MediaInfo.prototype);
         this._mediaInfo.segments[this._currentSegmentIndex] = segmentInfo;
 
