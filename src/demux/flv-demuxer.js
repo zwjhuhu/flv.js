@@ -302,8 +302,11 @@ class FLVDemuxer {
 
             let dataOffset = offset + 11;
             
+            if (tagType != 18 && this.tsBase == undefined) {
+                this.tsBase = timestamp;
+            }
             this._totalBytes += dataSize;
-            let currentTime = Math.ceil(timestamp / 1e3);
+            let currentTime = Math.ceil((timestamp - this.tsBase || 0) / 1e3);
             let delta = this._totalBytes - this._prevOffset;
             if (currentTime == this._prevTime + 1)
                 this._recordRealtimeBitrate(currentTime, delta);
