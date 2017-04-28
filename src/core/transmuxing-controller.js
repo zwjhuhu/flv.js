@@ -21,11 +21,12 @@ import Log from '../utils/logger.js';
 import Browser from '../utils/browser.js';
 import MediaInfo from './media-info.js';
 import FLVDemuxer from '../demux/flv-demuxer.js';
+import MP4Demuxer from '../demux/MP4-demuxer.js';
 import MP4Remuxer from '../remux/mp4-remuxer.js';
 import DemuxErrors from '../demux/demux-errors.js';
 import IOController from '../io/io-controller.js';
 import TransmuxingEvents from './transmuxing-events.js';
-import {LoaderStatus, LoaderErrors} from '../io/loader.js';
+import { LoaderStatus, LoaderErrors } from '../io/loader.js';
 
 // Transmuxing (IO, Demuxing, Remuxing) controller, with multipart support
 class TransmuxingController {
@@ -256,13 +257,48 @@ class TransmuxingController {
             this._demuxer.onMediaInfo = this._onMediaInfo.bind(this);
 
             this._remuxer.bindDataSource(this._demuxer
-                         .bindDataSource(this._ioctl
-            ));
+                .bindDataSource(this._ioctl
+                ));
 
             this._remuxer.onInitSegment = this._onRemuxerInitSegmentArrival.bind(this);
             this._remuxer.onMediaSegment = this._onRemuxerMediaSegmentArrival.bind(this);
 
             consumed = this._demuxer.parseChunks(data, byteStart);
+        } else if ((probeData = MP4Demuxer.probe(data)).match) {
+            // Copied from new FLVDecuxer
+            if (!probeData.enoughData) {
+                Log.e(this.TAG, 'MP4 detected, but too small stashInitialSize!');
+                Promise.resolve().then(() => {
+                    this._internalAbort();
+                });
+                this._emitter.emit(TransmuxingEvents.DEMUX_ERROR, DemuxErrors.FORMAT_UNSUPPORTED, 'MP4 detected, but too small stashInitialSize!');
+                consumed = 0;
+            } else {
+                // Always create new MP4Demuxer
+                this._demuxer = new MP4Demuxer(probeData, this._config);
+
+                if (!this._remuxer) {
+                    this._remuxer = new MP4Remuxer(this._config);
+                }
+
+                let mds = this._mediaDataSource;
+                if (mds.duration != undefined && !isNaN(mds.duration)) {
+                    this._demuxer.overridedDuration = mds.duration;
+                }
+                this._demuxer.timestampBase = mds.segments[this._currentSegmentIndex].timestampBase;
+
+                this._demuxer.onError = this._onDemuxException.bind(this);
+                this._demuxer.onMediaInfo = this._onMediaInfo.bind(this);
+
+                this._remuxer.bindDataSource(this._demuxer
+                    .bindDataSource(this._ioctl
+                    ));
+
+                this._remuxer.onInitSegment = this._onRemuxerInitSegmentArrival.bind(this);
+                this._remuxer.onMediaSegment = this._onRemuxerMediaSegmentArrival.bind(this);
+
+                consumed = this._demuxer.parseChunks(data, byteStart);
+            }
         } else {
             probeData = null;
             Log.e(this.TAG, 'Non-FLV, Unsupported media type!');
@@ -371,7 +407,7 @@ class TransmuxingController {
         if (this._statisticsReporter == null) {
             this._statisticsReporter = self.setInterval(
                 this._reportStatisticsInfo.bind(this),
-            this._config.statisticsInfoReportInterval);
+                this._config.statisticsInfoReportInterval);
         }
     }
 
