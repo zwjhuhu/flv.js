@@ -240,7 +240,7 @@ class MP4Demuxer {
                         }
                         case 'tkhd': {
                             /*
-                            ykhd struct
+                            tkhd struct
                             version 1   0
                             flags   3   1
                             create  4   4
@@ -279,6 +279,32 @@ class MP4Demuxer {
                                 group,
                                 trackWidth,
                                 trackHeight
+                            };
+                            break;
+                        }
+                        case 'mdhd': {
+                            /*
+                            mdhd struct
+                            version 1   0
+                            flags   3   1
+                            create  4   4
+                            modifi  4   8
+                            Tscale  4   12
+                            dura    4   16
+                            lang    2   20
+                            quality 2   22
+                            */
+                            let mdhd = new Uint8Array(data.buffer, data.byteOffset + index + offset + 8, box.size - 8);
+                            let timeScale = ReadBig32(mdhd, 12);
+                            let duration = ReadBig32(mdhd, 16);
+                            let language = ReadBig32(mdhd, 18) & 0xffff;
+                            let quality = ReadBig32(mdhd, 20) & 0xffff;
+
+                            parent[box.name] = {
+                                timeScale,
+                                duration,
+                                language,
+                                quality
                             };
                             break;
                         }
