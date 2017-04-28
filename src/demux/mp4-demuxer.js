@@ -33,6 +33,10 @@ function Swap32(src) {
         ((src & 0x000000FF) << 24));
 }
 
+function ReadBig16(array, index) {
+    return ((array[index] << 8) |
+        (array[index + 1]));
+}
 function ReadBig32(array, index) {
     return ((array[index] << 24) |
         (array[index + 1] << 16) |
@@ -191,9 +195,7 @@ class MP4Demuxer {
             'trak',
             'mdia',
             'minf',
-            'stbl',
-            'avc1',
-            'mp4a'
+            'stbl'
         ];
 
         function parseMoov(parent, data, index, length, parentName) {
@@ -265,11 +267,9 @@ class MP4Demuxer {
                             };
                             let trackID = ReadBig32(tkhd, 12);
                             let duration = ReadBig32(tkhd, 20);
-                            let group = ReadBig32(tkhd, 32) & 0xffff;
-                            let trackWidth = ReadBig32(tkhd, 76);
-                            trackWidth = parseFloat((trackWidth >> 16) + '.' + (trackWidth & 0xffff));
-                            let trackHeight = ReadBig32(tkhd, 76);
-                            trackHeight = parseFloat((trackHeight >> 16) + '.' + (trackHeight & 0xffff));
+                            let group = ReadBig16(tkhd, 34);
+                            let trackWidth = parseFloat(ReadBig16(tkhd, 72) + '.' + ReadBig16(tkhd, 74));
+                            let trackHeight = parseFloat(ReadBig16(tkhd, 76) + '.' + ReadBig16(tkhd, 78));
 
                             parent[box.name] = {
                                 flags,
@@ -296,8 +296,8 @@ class MP4Demuxer {
                             let mdhd = new Uint8Array(data.buffer, data.byteOffset + index + offset + 8, box.size - 8);
                             let timeScale = ReadBig32(mdhd, 12);
                             let duration = ReadBig32(mdhd, 16);
-                            let language = ReadBig32(mdhd, 18) & 0xffff;
-                            let quality = ReadBig32(mdhd, 20) & 0xffff;
+                            let language = ReadBig16(mdhd, 20);
+                            let quality = ReadBig16(mdhd, 22);
 
                             parent[box.name] = {
                                 timeScale,
@@ -311,6 +311,45 @@ class MP4Demuxer {
                             parent[box.name] = parent[box.name] || [];
                             parent[box.name].push({});
                             parseMoov(parent[box.name][parent[box.name].length - 1], data, index + offset + 16, box.size - 16, parentName + box.name + '/');
+                            break;
+                        }
+                        case 'avc1': {
+                            let vdes = new Uint8Array(data.buffer, data.byteOffset + index + offset + 8, box.size - 8);
+                            let dataReferenceIndex = ReadBig32(vdes, 4);
+                            let version = ReadBig16(vdes, 8);
+                            let revisionLevel = ReadBig16(vdes, 10);
+                            let vendor = ReadBig32(vdes, 12);
+                            let temporalQuality = ReadBig32(vdes, 16);
+                            let spatialQuality = ReadBig32(vdes, 20);
+                            let width = ReadBig16(vdes, 24);
+                            let height = ReadBig16(vdes, 26);
+                            let horizontalResolution = parseFloat(ReadBig16(vdes, 28) + '.' + ReadBig16(vdes, 30));
+                            let verticalResolution = parseFloat(ReadBig16(vdes, 32) + '.' + ReadBig16(vdes, 34));
+                            let dataSize = ReadBig32(vdes, 36);
+                            let frameCount = ReadBig16(vdes, 40);
+                            let compressorName = ReadString(vdes, 42, 32);
+                            let depth = ReadBig16(vdes, 74);
+                            let colorTableID = ReadBig16(vdes, 76);
+
+                            parent[box.name] = {
+                                dataReferenceIndex,
+                                version,
+                                revisionLevel,
+                                vendor,
+                                temporalQuality,
+                                spatialQuality,
+                                width,
+                                height,
+                                horizontalResolution,
+                                verticalResolution,
+                                dataSize,
+                                frameCount,
+                                compressorName,
+                                depth,
+                                colorTableID,
+                                extensions: []
+                            };
+                            parseMoov(parent[box.name].extensions, data, index + offset + 86, box.size - 86, parentName + box.name + '/');
                             break;
                         }
                     }
