@@ -186,13 +186,12 @@ class MP4Demuxer {
     }
 
     _parseMoov(data) {
-        let containerBox = [
+        const containerBox = [
             'moov',
             'trak',
             'mdia',
             'minf',
             'stbl',
-            'stsd',
             'avc1',
             'mp4a'
         ];
@@ -306,6 +305,12 @@ class MP4Demuxer {
                                 language,
                                 quality
                             };
+                            break;
+                        }
+                        case 'stsd': {
+                            parent[box.name] = parent[box.name] || [];
+                            parent[box.name].push({});
+                            parseMoov(parent[box.name][parent[box.name].length - 1], data, index + offset + 16, box.size - 16, parentName + box.name + '/');
                             break;
                         }
                     }
