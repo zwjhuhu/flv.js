@@ -389,6 +389,33 @@ class MP4Demuxer {
                             };
                             break;
                         }
+                        case 'mp4a': {
+                            let ades = new Uint8Array(data.buffer, data.byteOffset + index + offset + 8, box.size - 8);
+                            let dataReferenceIndex = ReadBig32(ades, 4);
+                            let version = ReadBig16(ades, 8);
+                            let revisionLevel = ReadBig16(ades, 10);
+                            let vendor = ReadBig32(ades, 12);
+                            let channels = ReadBig16(ades, 16);
+                            let sampleSize = ReadBig16(ades, 18);
+                            let compressionID = ReadBig16(ades, 20);
+                            let packetSize = ReadBig16(ades, 22);
+                            let sampleRate = ReadBig16(ades, 24);
+                            //unknown two bytes here???
+                            parent[box.name] = {
+                                dataReferenceIndex,
+                                version,
+                                revisionLevel,
+                                vendor,
+                                channels,
+                                sampleSize,
+                                compressionID,
+                                packetSize,
+                                sampleRate,
+                                extensions: {}
+                            };
+                            parseMoov(parent[box.name].extensions, data, index + offset + 36, box.size - 36, parentName + box.name + '/');
+                            break;
+                        }
                     }
                 }
                 offset += box.size;
