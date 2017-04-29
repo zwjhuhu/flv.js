@@ -75,6 +75,63 @@ function boxInfo(uintarr, index) {
 }
 
 
+let esdsIDs = {
+    3: 'esDescription',
+    4: 'decConfigDescription',
+    5: 'decSpecificDescription'
+};
+function esdsParse(parent, array, index) {
+    let descType = array[index];
+    let offset = 1;
+    let size = 0;
+    let byteRead = array[index + offset];
+    while (byteRead & 0x80) {
+        size = (byteRead & 0x7f) << 7;
+        offset++;
+        byteRead = array[index + offset];
+    }
+    size += byteRead & 0x7f;
+    offset++;
+    switch (descType) {
+        case 3: {
+            //esDesc
+            let trackID = ReadBig16(array, index + offset);
+            let flags = array[index + offset + 2];
+            offset += 3;
+            parent[esdsIDs[descType]] = {
+                size,
+                trackID
+            };
+            esdsParse(parent[esdsIDs[descType]], array, index + offset);
+            break;
+        }
+        case 4: {
+            //decConfig
+            let oti = array[index + offset];
+            let streamType = array[index + offset + 1];
+            let bufferSize = ReadBig32(array, index + offset + 1) & 0xffffff;
+            let maxBitrate = ReadBig32(array, index + offset + 5);
+            let avgBitrate = ReadBig32(array, index + offset + 9);
+            parent[esdsIDs[descType]] = {
+                oti,
+                streamType,
+                bufferSize,
+                maxBitrate,
+                avgBitrate,
+            };
+            esdsParse(parent[esdsIDs[descType]], array, index + offset + 13);
+            break;
+        }
+        case 5: {
+            //decSpecfic
+            debugger;
+            parent[esdsIDs[descType]] = Array.from(new Uint8Array(array.buffer, array.byteOffset + index + offset, size));
+            break;
+        }
+    }
+}
+
+
 class MP4Demuxer {
 
     constructor(probeData, config) {
@@ -414,6 +471,13 @@ class MP4Demuxer {
                                 extensions: {}
                             };
                             parseMoov(parent[box.name].extensions, data, index + offset + 36, box.size - 36, parentName + box.name + '/');
+                            break;
+                        }
+                        case 'esds': {
+                            let esds = new Uint8Array(data.buffer, data.byteOffset + index + offset + 8, box.size - 8);
+                            let esdsData = {};
+                            esdsParse(esdsData, esds, 4);
+                            parent[box.name] = esdsData;
                             break;
                         }
                     }
