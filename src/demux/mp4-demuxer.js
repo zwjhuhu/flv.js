@@ -17,6 +17,7 @@
  */
 
 import Log from '../utils/logger.js';
+import SPSParser from './sps-parser.js';
 import DemuxErrors from './demux-errors.js';
 import MediaInfo from '../core/media-info.js';
 import { IllegalStateException } from '../utils/exception.js';
@@ -347,9 +348,45 @@ class MP4Demuxer {
                                 compressorName,
                                 depth,
                                 colorTableID,
-                                extensions: []
+                                extensions: {}
                             };
                             parseMoov(parent[box.name].extensions, data, index + offset + 86, box.size - 86, parentName + box.name + '/');
+                            break;
+                        }
+                        case 'avcC': {
+                            let avcC = new Uint8Array(data.buffer, data.byteOffset + index + offset + 8, box.size - 8);
+                            let configurationVersion = avcC[0];
+                            let avcProfileIndication = avcC[1];
+                            let profile_compatibility = avcC[2];
+                            let AVCLevelIndication = avcC[3];
+                            let lengthSizeMinusOne = avcC[4] & 0x3;
+                            let nb_nalus = avcC[5] & 0x1f;
+                            let SPS = new Array(nb_nalus);
+                            let recordLength;
+                            let boxOffset = 6;
+                            for (let i = 0; i < nb_nalus; i++) {
+                                recordLength = ReadBig16(avcC, offset);
+                                boxOffset += 2;
+                                SPS[i] = SPSParser.parseSPS(new Uint8Array(data.buffer, data.byteOffset + index + offset + 8 + boxOffset, recordLength));
+                                boxOffset += recordLength;
+                            }
+                            nb_nalus = avcC[boxOffset];
+                            let PPS = new Array(nb_nalus);
+                            boxOffset++;
+                            for (let i = 0; i < nb_nalus; i++) {
+                                recordLength = ReadBig16(avcC, offset);
+                                boxOffset += 2;
+                                //ignoring PPS
+                                boxOffset += recordLength;
+                            }
+                            parent[box.name] = {
+                                configurationVersion,
+                                avcProfileIndication,
+                                profile_compatibility,
+                                AVCLevelIndication,
+                                lengthSizeMinusOne,
+                                SPS
+                            };
                             break;
                         }
                     }
