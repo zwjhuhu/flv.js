@@ -124,7 +124,6 @@ function esdsParse(parent, array, index) {
         }
         case 5: {
             //decSpecfic
-            debugger;
             parent[esdsIDs[descType]] = Array.from(new Uint8Array(array.buffer, array.byteOffset + index + offset, size));
             break;
         }
@@ -478,6 +477,95 @@ class MP4Demuxer {
                             let esdsData = {};
                             esdsParse(esdsData, esds, 4);
                             parent[box.name] = esdsData;
+                            break;
+                        }
+                        case 'stts': {
+                            let stts = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
+                            let entryCount = ReadBig32(stts, 0);
+                            let sampleTable = new Array(entryCount);
+                            let boxOffset = 4;
+                            for (let i = 0; i < entryCount; i++) {
+                                let sampleCount = ReadBig32(stts, boxOffset);
+                                let sampleDuration = ReadBig32(stts, boxOffset + 4);
+                                sampleTable[i] = {
+                                    sampleCount, sampleDuration
+                                };
+                                boxOffset += 8;
+                            }
+                            parent[box.name] = sampleTable;
+                            break;
+                        }
+                        case 'ctts': {
+                            let ctts = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
+                            let entryCount = ReadBig32(ctts, 0);
+                            let sampleTable = new Array(entryCount);
+                            let boxOffset = 4;
+                            for (let i = 0; i < entryCount; i++) {
+                                let sampleCount = ReadBig32(ctts, boxOffset);
+                                let compositionOffset = ReadBig32(ctts, boxOffset + 4);
+                                sampleTable[i] = {
+                                    sampleCount, compositionOffset
+                                };
+                                boxOffset += 8;
+                            }
+                            parent[box.name] = sampleTable;
+                            break;
+                        }
+                        case 'stss': {
+                            let stss = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
+                            let entryCount = ReadBig32(stss, 0);
+                            let sampleTable = new Array(entryCount);
+                            let boxOffset = 4;
+                            for (let i = 0; i < entryCount; i++) {
+                                sampleTable[i] = ReadBig32(stss, boxOffset);
+                                boxOffset += 4;
+                            }
+                            parent[box.name] = sampleTable;
+                            break;
+                        }
+                        case 'stsc': {
+                            let stsc = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
+                            let entryCount = ReadBig32(stsc, 0);
+                            let sampleTable = new Array(entryCount);
+                            let boxOffset = 4;
+                            for (let i = 0; i < entryCount; i++) {
+                                let firstChunk = ReadBig32(stsc, boxOffset);
+                                let samplesPerChunk = ReadBig32(stsc, boxOffset + 4);
+                                let sampleDescID = ReadBig32(stsc, boxOffset + 8);
+                                sampleTable[i] = {
+                                    firstChunk, samplesPerChunk, sampleDescID
+                                };
+                                boxOffset += 12;
+                            }
+                            parent[box.name] = sampleTable;
+                            break;
+                        }
+                        case 'stsz': {
+                            let stsz = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
+                            let sampleSize = ReadBig32(stsz, 0);
+                            let entryCount = ReadBig32(stsz, 4);
+                            let sampleTable = new Array(entryCount);
+                            let boxOffset = 8;
+                            for (let i = 0; i < entryCount; i++) {
+                                sampleTable[i] = ReadBig32(stsz, boxOffset);
+                                boxOffset += 4;
+                            }
+                            parent[box.name] = {
+                                sampleSize,
+                                sampleTable
+                            };
+                            break;
+                        }
+                        case 'stco': {
+                            let stco = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
+                            let entryCount = ReadBig32(stco, 0);
+                            let sampleTable = new Array(entryCount);
+                            let boxOffset = 4;
+                            for (let i = 0; i < entryCount; i++) {
+                                sampleTable[i] = ReadBig32(stco, boxOffset);
+                                boxOffset += 4;
+                            }
+                            parent[box.name] = sampleTable;
                             break;
                         }
                     }
