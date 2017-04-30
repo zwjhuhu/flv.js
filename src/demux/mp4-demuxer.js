@@ -694,7 +694,7 @@ class MP4Demuxer {
                 chunkMap.push(currentChunk);
                 chunkNumber++;
             }
-            mediaInfo.videoDataRate = size / mediaInfo.duration * 8;
+            mediaInfo.videoDataRate = size / mediaInfo.metadata.duration * 8;
             mediaInfo.width = sps.present_size.width;
             mediaInfo.height = sps.present_size.height;
             mediaInfo.fps = sps.frame_rate.fps;
@@ -783,7 +783,7 @@ class MP4Demuxer {
                 chunkMap.push(currentChunk);
                 chunkNumber++;
             }
-            mediaInfo.audioDataRate = size / mediaInfo.duration * 8;
+            mediaInfo.audioDataRate = size / mediaInfo.metadata.duration * 8;
             let meta = {};
             meta.type = 'audio';
             meta.audioSampleRate = mediaInfo.audioSampleRate;
