@@ -19,6 +19,7 @@
 import Polyfill from './utils/polyfill.js';
 import Features from './core/features.js';
 import FlvPlayer from './player/flv-player.js';
+import SegmentMP4Player from './player/segment-mp4-player.js';
 import NativePlayer from './player/native-player.js';
 import PlayerEvents from './player/player-events.js';
 import {ErrorTypes, ErrorDetails} from './player/player-errors.js';
@@ -45,6 +46,8 @@ function createPlayer(mediaDataSource, optionalConfig) {
     switch (mds.type) {
         case 'flv':
             return new FlvPlayer(mds, optionalConfig);
+        case 'segment-mp4':
+            return new SegmentMP4Player(mds, optionalConfig);
         default:
             return new NativePlayer(mds, optionalConfig);
     }
