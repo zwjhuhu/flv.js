@@ -191,7 +191,7 @@ class TransmuxingController {
             // cross-segment seeking
             let targetSegmentInfo = this._mediaInfo.segments[targetSegmentIndex];
 
-            if (targetSegmentInfo == undefined) {
+            if (targetSegmentInfo == undefined || this._demuxer.TAG == 'MP4Demuxer') {
                 // target segment hasn't been loaded. We need metadata then seek to expected time
                 this._pendingSeekTime = milliseconds;
                 this._internalAbort();

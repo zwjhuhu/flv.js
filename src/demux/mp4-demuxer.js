@@ -155,7 +155,7 @@ class MP4Demuxer {
         this._dataOffset = probeData.dataOffset;
         this._firstParse = true;
         this._dispatch = false;
-        this._mdatLeft = 0;
+        this._mdatEnd = 0;
 
         this._hasAudio = probeData.hasAudioTrack;
         this._hasVideo = probeData.hasVideoTrack;
@@ -232,15 +232,21 @@ class MP4Demuxer {
         }
 
         let offset = ftyp.size;
-        let moov = boxInfo(data, offset);
+        let bpx = boxInfo(data, offset);
 
-        if (moov.name != 'moov') {
+        while (bpx.fullyLoaded) {
+            if (bpx.name == 'moov')
+                break;
+            offset += bpx.size;
+            bpx = boxInfo(data, offset);
+        }
+        if (bpx.name != 'moov') {
             return mismatch;
         }
 
         return {
             match: true,
-            enoughData: moov.fullyLoaded,
+            enoughData: bpx.fullyLoaded,
             consumed: offset,
             dataOffset: offset,
         };
@@ -585,8 +591,7 @@ class MP4Demuxer {
         }
 
         let moovData = {};
-        parseMoov(moovData, data, 0, data.length, '/');
-        console.log(moovData);
+        parseMoov(moovData, data, 0, data.length);
 
         let trak = moovData.moov[0].trak;
         let tracks = {};
@@ -700,7 +705,6 @@ class MP4Demuxer {
             mediaInfo.sarDen = sps.sar_ratio.height;
             mediaInfo.hasKeyframesIndex = true;
             mediaInfo.keyframesIndex = this._parseKeyframesIndex(tracks.video.mdia[0].minf[0].stbl[0], sampleTsMap.video);
-            console.log(mediaInfo.keyframesIndex);
 
             let meta = {};
             meta.avcc = tracks.video.mdia[0].minf[0].stbl[0].stsd[0].avc1.extensions.avcC.data;
@@ -812,10 +816,10 @@ class MP4Demuxer {
         chunkMap.sort(function (a, b) {
             return a.offset - b.offset;
         });
+        this._chunkMap = chunkMap;
         this._mediaInfo = mediaInfo;
         if (mediaInfo.isComplete())
             this._onMediaInfo(mediaInfo);
-        this._chunkMap = chunkMap;
         Log.v(this.TAG, 'Parsed moov box, hasVideo: ' + mediaInfo.hasVideo + ' hasAudio: ' + mediaInfo.hasAudio);
     }
 
@@ -942,13 +946,14 @@ class MP4Demuxer {
                 break;
             }
 
-            if (this._mdatLeft) {
+            let chunkMap = this._chunkMap;
+            if (this._mdatEnd > byteStart + offset) {
                 let sampleOffset = byteStart + offset;
-                let dataChunk = this._chunkMap[0];
-                for (let i = 1; i < this._chunkMap.length; i++) {
-                    dataChunk = this._chunkMap[i];
+                let dataChunk = chunkMap[0];
+                for (let i = 1; i < chunkMap.length; i++) {
+                    dataChunk = chunkMap[i];
                     if (sampleOffset < dataChunk.offset) {
-                        dataChunk = this._chunkMap[i - 1];
+                        dataChunk = chunkMap[i - 1];
                         break;
                     }
                 }
@@ -972,20 +977,6 @@ class MP4Demuxer {
                         break;
                     }
                     this._parseAVCVideoData(chunk, offset, sampleSize, sample.ts, byteStart + offset, sample.isKeyframe, sample.cts);
-                    /*
-                    let avcSample = {
-                        units: units,
-                        length: length,
-                        isKeyframe: keyframe,
-                        dts: dts,
-                        cts: cts,
-                        pts: (dts + cts)
-                    };
-                    if (keyframe) {
-                        avcSample.fileposition = tagPosition;
-                    }
-                    track.samples.push(avcSample);
-                    track.length += length;*/
                 } else if (dataChunk.type == 'audio') {
                     sampleSize = sample.size;
                     if (offset + sampleSize > chunk.byteLength) {
@@ -997,15 +988,13 @@ class MP4Demuxer {
                     track.samples.push(aacSample);
                     track.length += aacSample.unit.length;
                 }
-                //console.log(this._chunkMap, sampleOffset, dataChunk, sample);
 
-                this._mdatLeft -= sampleSize;
                 offset += sampleSize;
             } else {
                 let box = boxInfo(v, 0);
                 if (box.name == 'mdat') {
+                    this._mdatEnd = byteStart + offset + box.size - 8;
                     offset += 8;
-                    this._mdatLeft = box.size - 8;
                 } else {
                     if (box.fullyLoaded) {
                         //not mdat box, skip
@@ -1053,7 +1042,7 @@ class MP4Demuxer {
         */
         for (let i = 0; i < syncSamples.length; i++) {
             let keySample = syncSamples[i];
-            times.push(tsMap[keySample - 1]);
+            times.push(this._timestampBase + tsMap[keySample - 1]);
 
             for (; ;) {
                 if (nextChunkRule != undefined && chunkNumber >= nextChunkRule.firstChunk) {
@@ -1068,11 +1057,6 @@ class MP4Demuxer {
                 chunkNumber++;
             }
             let fileposition = chunkOffset[chunkNumber - 1];
-            sampleNumber -= currentChunkRule.samplesPerChunk;
-            while (sampleNumber < keySample) {
-                fileposition += sampleSize.sampleTable[sampleNumber - 1];
-                sampleNumber++;
-            }
             filepositions.push(fileposition);
         }
 
