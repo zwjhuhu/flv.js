@@ -155,6 +155,7 @@ class MP4Demuxer {
         this._dataOffset = probeData.dataOffset;
         this._firstParse = true;
         this._dispatch = false;
+        this._mdatLeft = 0;
 
         this._hasAudio = probeData.hasAudioTrack;
         this._hasVideo = probeData.hasVideoTrack;
@@ -595,25 +596,29 @@ class MP4Demuxer {
         ];
         for (let i = 0; i < trak.length; i++) {
             let track = trak[i];
-            if (!track.tkhd) {
-                Log.w(this.TAG, 'Found trak without tkhd!');
-                continue;
-            }
-            let group = track.tkhd.group;
+            let stsd = track.mdia[0].minf[0].stbl[0].stsd[0];
+            let group = -1;
+            if (stsd.avc1)
+                group = 0;
+            else if (stsd.mp4a)
+                group = 1;
             if (!groups[group]) {
                 continue;
             }
             if (tracks[groups[group]]) {
-                Log.w(this.TAG, 'Found another track, ignoring.');
+                Log.w(this.TAG, 'Found another ' + groups[group] + ' track, ignoring.');
                 continue;
             }
             tracks[groups[group]] = track;
         }
         let mediaInfo = this._mediaInfo;
         mediaInfo.mimeType = 'video/mp4';
-        mediaInfo.duration = moovData.moov[0].mvhd.duration / moovData.moov[0].mvhd.timeScale * 1e3;
-        mediaInfo.hasVideo = !!tracks.video;
-        mediaInfo.hasAudio = !!tracks.audio;
+        mediaInfo.metadata = {
+            duration: moovData.moov[0].mvhd.duration / moovData.moov[0].mvhd.timeScale * 1e3
+        };
+        mediaInfo.duration = this._duration;
+        mediaInfo.hasVideo = this._hasVideo = !!tracks.video;
+        mediaInfo.hasAudio = this._hasAudio = !!tracks.audio;
         let bitrateMapTrack = {};
         let maxDuration = 0;
         let chunkMap = [];
@@ -648,8 +653,13 @@ class MP4Demuxer {
                     sampleNumber++;
                 }
             }
+            let ctts = tracks.video.mdia[0].minf[0].stbl[0].ctts;
+            let stss = tracks.video.mdia[0].minf[0].stbl[0].stss;
             let currentChunkRule = stsc[0];
             let nextChunkRule = stsc[1];
+            let currentCtsRule = ctts[0];
+            let currentCtsLeft = currentCtsRule.sampleCount;
+            let cttsOffset = 0;
             let sampleToChunkOffset = 0;
             let chunkNumber = 1;
             sampleNumber = 0;
@@ -665,9 +675,15 @@ class MP4Demuxer {
                     samples: []
                 };
                 for (let j = 0; j < currentChunkRule.samplesPerChunk; j++) {
+                    if (currentCtsLeft == 0) {
+                        currentCtsRule = ctts[++cttsOffset];
+                        currentCtsLeft = currentCtsRule.sampleCount;
+                    }
                     currentChunk.samples.push({
                         ts: sampleTsMap.video[sampleNumber],
-                        size: stsz[sampleNumber++]
+                        cts: (currentCtsRule.compositionOffset / timeScale * 1e3) | 0,
+                        size: stsz[sampleNumber++],
+                        isKeyframe: stss.indexOf(sampleNumber) != -1
                     });
                 }
                 chunkMap.push(currentChunk);
@@ -683,7 +699,8 @@ class MP4Demuxer {
             mediaInfo.sarNum = sps.sar_ratio.width;
             mediaInfo.sarDen = sps.sar_ratio.height;
             mediaInfo.hasKeyframesIndex = true;
-            mediaInfo.keyframesIndex = this._parseKeyframesIndex(tracks.video.mdia[0].minf[0].stbl[0], timeScale);
+            mediaInfo.keyframesIndex = this._parseKeyframesIndex(tracks.video.mdia[0].minf[0].stbl[0], sampleTsMap.video);
+            console.log(mediaInfo.keyframesIndex);
 
             let meta = {};
             meta.avcc = tracks.video.mdia[0].minf[0].stbl[0].stsd[0].avc1.extensions.avcC.data;
@@ -692,7 +709,7 @@ class MP4Demuxer {
             meta.codec = mediaInfo.videoCodec;
             meta.codecHeight = sps.codec_size.height;
             meta.codecWidth = sps.codec_size.width;
-            meta.duration = (tracks.video.mdia[0].mdhd.duration / timeScale * 1e3) | 0;
+            meta.duration = this._duration;
             meta.timescale = 1e3;
             meta.frameRate = sps.frame_rate;
             meta.id = id++;
@@ -704,6 +721,7 @@ class MP4Demuxer {
             meta.sarRatio = sps.sar_ratio;
             meta.type = 'video';
             this._onTrackMetadata('video', meta);
+            this._videoInitialMetadataDispatched = true;
             this._videoMetadata = meta;
         }
         if (mediaInfo.hasAudio) {
@@ -768,11 +786,12 @@ class MP4Demuxer {
             meta.channelCount = mediaInfo.audioChannelCount;
             meta.codec = mediaInfo.audioCodec;
             meta.config = specDesc.data;
-            meta.duration = (tracks.audio.mdia[0].mdhd.duration / timeScale * 1e3) | 0;
+            meta.duration = this._duration;
             meta.id = id++;
             meta.refSampleDuration = Math.floor(1024 / meta.audioSampleRate * timeScale);
             meta.timescale = 1000;
             this._onTrackMetadata('audio', meta);
+            this._audioInitialMetadataDispatched = true;
             this._audioMetadata = meta;
         }
         if (codecs.length > 0) {
@@ -797,6 +816,7 @@ class MP4Demuxer {
         if (mediaInfo.isComplete())
             this._onMediaInfo(mediaInfo);
         this._chunkMap = chunkMap;
+        Log.v(this.TAG, 'Parsed moov box, hasVideo: ' + mediaInfo.hasVideo + ' hasAudio: ' + mediaInfo.hasAudio);
     }
 
     bindDataSource(loader) {
@@ -909,12 +929,93 @@ class MP4Demuxer {
             }
             let moovData = new Uint8Array(chunk, byteStart + offset, moov.size);
             this._parseMoov(moovData);
-            offset += 4;
-            throw 'just break';
+            offset += moov.size;
         }
 
         while (offset < chunk.byteLength) {
             this._dispatch = true;
+
+            let v = new Uint8Array(chunk, offset);
+
+            if (offset + 8 > chunk.byteLength) {
+                // data not enough for parsing box size
+                break;
+            }
+
+            if (this._mdatLeft) {
+                let sampleOffset = byteStart + offset;
+                let dataChunk = this._chunkMap[0];
+                for (let i = 1; i < this._chunkMap.length; i++) {
+                    dataChunk = this._chunkMap[i];
+                    if (sampleOffset < dataChunk.offset) {
+                        dataChunk = this._chunkMap[i - 1];
+                        break;
+                    }
+                }
+
+                sampleOffset -= dataChunk.offset;
+                let sample;
+                for (let i = 0; i < dataChunk.samples.length; i++) {
+                    if (sampleOffset == 0) {
+                        sample = dataChunk.samples[i];
+                        break;
+                    }
+                    sampleOffset -= dataChunk.samples[i].size;
+                }
+                if (!sample) {
+                    break;
+                }
+                let sampleSize;
+                if (dataChunk.type == 'video') {
+                    sampleSize = sample.size;
+                    if (offset + sampleSize > chunk.byteLength) {
+                        break;
+                    }
+                    this._parseAVCVideoData(chunk, offset, sampleSize, sample.ts, byteStart + offset, sample.isKeyframe, sample.cts);
+                    /*
+                    let avcSample = {
+                        units: units,
+                        length: length,
+                        isKeyframe: keyframe,
+                        dts: dts,
+                        cts: cts,
+                        pts: (dts + cts)
+                    };
+                    if (keyframe) {
+                        avcSample.fileposition = tagPosition;
+                    }
+                    track.samples.push(avcSample);
+                    track.length += length;*/
+                } else if (dataChunk.type == 'audio') {
+                    sampleSize = sample.size;
+                    if (offset + sampleSize > chunk.byteLength) {
+                        break;
+                    }
+                    let track = this._audioTrack;
+                    let dts = this._timestampBase + sample.ts;
+                    let aacSample = { unit: v.subarray(0, 4 + sampleSize), dts: dts, pts: dts };
+                    track.samples.push(aacSample);
+                    track.length += aacSample.unit.length;
+                }
+                //console.log(this._chunkMap, sampleOffset, dataChunk, sample);
+
+                this._mdatLeft -= sampleSize;
+                offset += sampleSize;
+            } else {
+                let box = boxInfo(v, 0);
+                if (box.name == 'mdat') {
+                    offset += 8;
+                    this._mdatLeft = box.size - 8;
+                } else {
+                    if (box.fullyLoaded) {
+                        //not mdat box, skip
+                        offset += box.size;
+                    } else {
+                        //not mdat box, not fully loaded, break out
+                        break;
+                    }
+                }
+            }
         }
 
         // dispatch parsed frames to consumer (typically, the remuxer)
@@ -927,22 +1028,17 @@ class MP4Demuxer {
         return offset;  // consumed bytes, just equals latest offset index
     }
 
-    _parseKeyframesIndex(stbl, timeScale) {
+    _parseKeyframesIndex(stbl, tsMap) {
         let times = [];
         let filepositions = [];
 
-        let timeToSample = stbl.stts;
         let syncSamples = stbl.stss;
         let sampleToChunk = stbl.stsc;
         let chunkOffset = stbl.stco;
         let sampleSize = stbl.stsz;
 
-        let sampleNumber1 = 1;
-        let sampleNumber2 = 1;
+        let sampleNumber = 1;
         let chunkNumber = 1;
-        let timeToSampleOffset = 0;
-        let currentTimeToSampleRule = timeToSample[0];
-        let timeToSampleLeft = currentTimeToSampleRule.sampleCount;
         let timeOffset = 0;
         let sampleToChunkOffset = 0;
         let currentChunkRule = sampleToChunk[0];
@@ -950,27 +1046,14 @@ class MP4Demuxer {
         /*
         syncSamples内遍历keyframe对应sample
             查找keyFrame对应时间 timeToSample
+            *改为传入tsMap
             查找Sample所在chunk sampleToChunk
                 查找chunk对应offset syncSample
                     去除chunk内之前的无关sample sampleSize
         */
         for (let i = 0; i < syncSamples.length; i++) {
             let keySample = syncSamples[i];
-            for (; ;) {
-                if (timeToSampleLeft == 0) {
-                    timeToSampleOffset++;
-                    currentTimeToSampleRule = timeToSample[timeToSampleOffset];
-                    timeToSampleLeft = currentTimeToSampleRule.sampleCount;
-                }
-                sampleNumber1++;
-                if (sampleNumber1 > keySample) {
-                    break;
-                }
-                timeOffset += (currentTimeToSampleRule.sampleDuration / timeScale) | 0;
-                timeToSampleOffset++;
-            }
-            times.push(timeOffset);
-            sampleNumber1--;
+            times.push(tsMap[keySample - 1]);
 
             for (; ;) {
                 if (nextChunkRule != undefined && chunkNumber >= nextChunkRule.firstChunk) {
@@ -978,17 +1061,17 @@ class MP4Demuxer {
                     currentChunkRule = nextChunkRule;
                     nextChunkRule = sampleToChunk[sampleToChunkOffset + 1];
                 }
-                sampleNumber2 += currentChunkRule.samplesPerChunk;
-                if (sampleNumber2 > keySample) {
+                sampleNumber += currentChunkRule.samplesPerChunk;
+                if (sampleNumber > keySample) {
                     break;
                 }
                 chunkNumber++;
             }
             let fileposition = chunkOffset[chunkNumber - 1];
-            sampleNumber2 -= currentChunkRule.samplesPerChunk;
-            while (sampleNumber2 < keySample) {
-                fileposition += sampleSize.sampleTable[sampleNumber2 - 1];
-                sampleNumber2++;
+            sampleNumber -= currentChunkRule.samplesPerChunk;
+            while (sampleNumber < keySample) {
+                fileposition += sampleSize.sampleTable[sampleNumber - 1];
+                sampleNumber++;
             }
             filepositions.push(fileposition);
         }
@@ -997,6 +1080,64 @@ class MP4Demuxer {
             times: times,
             filepositions: filepositions
         };
+    }
+
+    _parseAVCVideoData(arrayBuffer, dataOffset, dataSize, tagTimestamp, tagPosition, frameType, cts) {
+        let le = this._littleEndian;
+        let v = new DataView(arrayBuffer, dataOffset, dataSize);
+
+        let units = [], length = 0;
+
+        let offset = 0;
+        const lengthSize = this._naluLengthSize;
+        let dts = this._timestampBase + tagTimestamp;
+        let keyframe = (frameType === 1);  // from FLV Frame Type constants
+
+        while (offset < dataSize) {
+            if (offset + 4 >= dataSize) {
+                Log.w(this.TAG, `Malformed Nalu near timestamp ${dts}, offset = ${offset}, dataSize = ${dataSize}`);
+                break;  // data not enough for next Nalu
+            }
+            // Nalu with length-header (AVC1)
+            let naluSize = v.getUint32(offset, !le);  // Big-Endian read
+            if (lengthSize === 3) {
+                naluSize >>>= 8;
+            }
+            if (naluSize > dataSize - lengthSize) {
+                Log.w(this.TAG, `Malformed Nalus near timestamp ${dts}, NaluSize > DataSize!`);
+                return;
+            }
+
+            let unitType = v.getUint8(offset + lengthSize) & 0x1F;
+
+            if (unitType === 5) {  // IDR
+                keyframe = true;
+            }
+
+            let data = new Uint8Array(arrayBuffer, dataOffset + offset, lengthSize + naluSize);
+            let unit = { type: unitType, data: data };
+            units.push(unit);
+            length += data.byteLength;
+
+            offset += lengthSize + naluSize;
+        }
+
+        if (units.length) {
+            let track = this._videoTrack;
+            let avcSample = {
+                units: units,
+                length: length,
+                isKeyframe: keyframe,
+                dts: dts,
+                cts: cts,
+                pts: (dts + cts)
+            };
+            if (keyframe) {
+                avcSample.fileposition = tagPosition;
+            }
+            track.samples.push(avcSample);
+            track.length += length;
+        }
     }
 
 }
