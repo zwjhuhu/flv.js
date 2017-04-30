@@ -124,8 +124,16 @@ function esdsParse(parent, array, index) {
         }
         case 5: {
             //decSpecfic
-            parent[esdsIDs[descType]] = Array.from(new Uint8Array(array.buffer, array.byteOffset + index + offset, size));
-            parent.originalAudioObjectType = parent[esdsIDs[descType]][0] >>> 3;
+            let data = Array.from(new Uint8Array(array.buffer, array.byteOffset + index + offset, size));
+            let originalAudioObjectType = data[0] >>> 3;
+            let samplingIndex = ((data[0] & 0x07) << 1) | (data[1] >>> 7);
+            let channelConfig = (data[1] & 0x78) >>> 3;
+            parent[esdsIDs[descType]] = {
+                data,
+                originalAudioObjectType,
+                samplingIndex,
+                channelConfig
+            };
             break;
         }
     }
@@ -226,21 +234,12 @@ class MP4Demuxer {
         let moov = boxInfo(data, offset);
 
         if (moov.name != 'moov') {
-            return {
-                match: false
-            };
-        }
-
-        if (!moov.fullyLoaded) {
-            return {
-                match: true,
-                enoughData: false
-            };
+            return mismatch;
         }
 
         return {
             match: true,
-            enoughData: true,
+            enoughData: moov.fullyLoaded,
             consumed: offset,
             dataOffset: offset,
         };
@@ -450,7 +449,8 @@ class MP4Demuxer {
                                 profile_compatibility,
                                 AVCLevelIndication,
                                 lengthSizeMinusOne,
-                                SPS
+                                SPS,
+                                data: avcC
                             };
                             break;
                         }
@@ -586,69 +586,7 @@ class MP4Demuxer {
         let moovData = {};
         parseMoov(moovData, data, 0, data.length, '/');
         console.log(moovData);
-        /*
-        mediaInfo Data
-{
-  "mimeType": "video/x-flv; codecs=\"avc1.640028,mp4a.40.2\"",
-  "duration": 5088,
-  "hasAudio": true,
-  "hasVideo": true,
-  "audioCodec": "mp4a.40.2",
-  "videoCodec": "avc1.640028",
-  "audioDataRate": 123.291015625,
-  "videoDataRate": 1318.5498046875,
-  "audioSampleRate": 44100,
-  "audioChannelCount": 2,
-  "width": 1920,
-  "height": 1080,
-  "fps": 24.416,
-  "profile": "High",
-  "level": "4.0",
-  "chromaFormat": "4:2:0",
-  "sarNum": 1,
-  "sarDen": 1,
-  "metadata": {
-    "duration": 5.088,
-    "width": 1920,
-    "height": 1080,
-    "videodatarate": 1318.5498046875,
-    "framerate": 24.416666666666668,
-    "videocodecid": 7,
-    "audiodatarate": 123.291015625,
-    "audiosamplerate": 44100,
-    "audiosamplesize": 16,
-    "stereo": true,
-    "audiocodecid": 10,
-    "creator": "Coded",
-    "metadatacreator": "Yet Another Metadata Injector for FLV - Version 1.9",
-    "hasKeyframes": "true",
-    "hasVideo": "true",
-    "hasAudio": "true",
-    "hasMetadata": "true",
-    "canSeekToEnd": "true",
-    "datasize": "16711474",
-    "videosize": "15221750",
-    "audiosize": "1465544",
-    "lasttimestamp": "90",
-    "lastkeyframetimestamp": "90",
-    "lastkeyframelocation": "16712696",
-    "encoder": "Lavf56.4.101",
-    "filesize": 555656
-  },
-  "segmentCount": 1,
-  "hasKeyframesIndex": false,
-  "bitrateMap": [
-    [
-      9.448,
-      670.896,
-      552.44,
-      1443.848,
-      1052.728,
-      668.984
-    ]
-  ]
-}
-        */
+
         let trak = moovData.moov[0].trak;
         let tracks = {};
         let groups = [
@@ -671,18 +609,69 @@ class MP4Demuxer {
             }
             tracks[groups[group]] = track;
         }
-        let mediaInfo = {};
+        let mediaInfo = this._mediaInfo;
         mediaInfo.mimeType = 'video/mp4';
         mediaInfo.duration = moovData.moov[0].mvhd.duration / moovData.moov[0].mvhd.timeScale * 1e3;
         mediaInfo.hasVideo = !!tracks.video;
         mediaInfo.hasAudio = !!tracks.audio;
+        let bitrateMapTrack = {};
+        let maxDuration = 0;
+        let chunkMap = [];
+        let sampleTsMap = {};
+        let codecs = [];
+        let id = 1;
         if (mediaInfo.hasVideo) {
             let sps = tracks.video.mdia[0].minf[0].stbl[0].stsd[0].avc1.extensions.avcC.SPS[0];
             mediaInfo.videoCodec = sps.codecString;
+            codecs.push(mediaInfo.videoCodec);
             let stsz = tracks.video.mdia[0].minf[0].stbl[0].stsz.sampleTable;
+            let stts = tracks.video.mdia[0].minf[0].stbl[0].stts;
+            let stsc = tracks.video.mdia[0].minf[0].stbl[0].stsc;
+            let stco = tracks.video.mdia[0].minf[0].stbl[0].stco;
+            let timeScale = tracks.video.mdia[0].mdhd.timeScale;
+            let sampleNumber = 0;
+            let sampleTs = 0;
             let size = 0;
-            for (let i = 0; i < stsz.length; i++) {
-                size += stsz[i];
+            bitrateMapTrack.video = new Array(Math.ceil(tracks.video.mdia[0].mdhd.duration / timeScale));
+            sampleTsMap.video = [];
+            for (let i = 0; i < stts.length; i++) {
+                for (let j = 0; j < stts[i].sampleCount; j++) {
+                    let time = sampleTs | 0;
+                    maxDuration = Math.max(time, maxDuration);
+                    if (!bitrateMapTrack.video[time]) {
+                        bitrateMapTrack.video[time] = 0;
+                    }
+                    bitrateMapTrack.video[time] += stsz[sampleNumber];
+                    size += stsz[sampleNumber];
+                    sampleTsMap.video.push(sampleTs * 1e3 | 0);
+                    sampleTs += stts[i].sampleDuration / timeScale;
+                    sampleNumber++;
+                }
+            }
+            let currentChunkRule = stsc[0];
+            let nextChunkRule = stsc[1];
+            let sampleToChunkOffset = 0;
+            let chunkNumber = 1;
+            sampleNumber = 0;
+            for (let i = 0; i < stco.length; i++) {
+                if (nextChunkRule != undefined && chunkNumber >= nextChunkRule.firstChunk) {
+                    sampleToChunkOffset++;
+                    currentChunkRule = nextChunkRule;
+                    nextChunkRule = stsc[sampleToChunkOffset + 1];
+                }
+                let currentChunk = {
+                    offset: stco[chunkNumber - 1],
+                    type: 'video',
+                    samples: []
+                };
+                for (let j = 0; j < currentChunkRule.samplesPerChunk; j++) {
+                    currentChunk.samples.push({
+                        ts: sampleTsMap.video[sampleNumber],
+                        size: stsz[sampleNumber++]
+                    });
+                }
+                chunkMap.push(currentChunk);
+                chunkNumber++;
             }
             mediaInfo.videoDataRate = size / mediaInfo.duration * 8;
             mediaInfo.width = sps.present_size.width;
@@ -694,17 +683,120 @@ class MP4Demuxer {
             mediaInfo.sarNum = sps.sar_ratio.width;
             mediaInfo.sarDen = sps.sar_ratio.height;
             mediaInfo.hasKeyframesIndex = true;
-            mediaInfo.keyframesIndex = this._parseKeyframesIndex(tracks.video.mdia[0].minf[0].stbl[0], tracks.video.mdia[0].mdhd.timeScale);
+            mediaInfo.keyframesIndex = this._parseKeyframesIndex(tracks.video.mdia[0].minf[0].stbl[0], timeScale);
+
+            let meta = {};
+            meta.avcc = tracks.video.mdia[0].minf[0].stbl[0].stsd[0].avc1.extensions.avcC.data;
+            meta.bitDepth = sps.bit_depth;
+            meta.chromaFormat = sps.chroma_format;
+            meta.codec = mediaInfo.videoCodec;
+            meta.codecHeight = sps.codec_size.height;
+            meta.codecWidth = sps.codec_size.width;
+            meta.duration = (tracks.video.mdia[0].mdhd.duration / timeScale * 1e3) | 0;
+            meta.timescale = 1e3;
+            meta.frameRate = sps.frame_rate;
+            meta.id = id++;
+            meta.level = sps.level_string;
+            meta.presentHeight = sps.present_size.height;
+            meta.presentWidth = sps.present_size.width;
+            meta.profile = sps.profile_string;
+            meta.refSampleDuration = Math.floor(meta.timescale * (meta.frameRate.fps_den / meta.frameRate.fps_num));
+            meta.sarRatio = sps.sar_ratio;
+            meta.type = 'video';
+            this._onTrackMetadata('video', meta);
+            this._videoMetadata = meta;
         }
         if (mediaInfo.hasAudio) {
-            mediaInfo.audioCodec = 'mp4a.40.' + tracks.audio.mdia[0].minf[0].stbl[0].stsd[0].mp4a.extensions.esds.esDescription.decConfigDescription.originalAudioObjectType;
+            let specDesc = tracks.audio.mdia[0].minf[0].stbl[0].stsd[0].mp4a.extensions.esds.esDescription.decConfigDescription.decSpecificDescription;
+            mediaInfo.audioCodec = 'mp4a.40.' + specDesc.originalAudioObjectType;
+            codecs.push(mediaInfo.audioCodec);
+            mediaInfo.audioSampleRate = this._mpegSamplingRates[specDesc.samplingIndex];
+            mediaInfo.audioChannelCount = specDesc.channelConfig;
             let stsz = tracks.audio.mdia[0].minf[0].stbl[0].stsz.sampleTable;
+            let stts = tracks.audio.mdia[0].minf[0].stbl[0].stts;
+            let stsc = tracks.audio.mdia[0].minf[0].stbl[0].stsc;
+            let stco = tracks.audio.mdia[0].minf[0].stbl[0].stco;
+            let timeScale = tracks.audio.mdia[0].mdhd.timeScale;
+            let sampleNumber = 0;
+            let sampleTs = 0;
             let size = 0;
-            for (let i = 0; i < stsz.length; i++) {
-                size += stsz[i];
+            bitrateMapTrack.audio = new Array(Math.ceil(tracks.audio.mdia[0].mdhd.duration / timeScale));
+            sampleTsMap.audio = [];
+            for (let i = 0; i < stts.length; i++) {
+                for (let j = 0; j < stts[i].sampleCount; j++) {
+                    let time = sampleTs | 0;
+                    maxDuration = Math.max(time, maxDuration);
+                    if (!bitrateMapTrack.audio[time]) {
+                        bitrateMapTrack.audio[time] = 0;
+                    }
+                    bitrateMapTrack.audio[time] += stsz[sampleNumber];
+                    size += stsz[sampleNumber];
+                    sampleTsMap.audio.push(sampleTs * 1e3 | 0);
+                    sampleTs += stts[i].sampleDuration / timeScale;
+                    sampleNumber++;
+                }
+            }
+            let currentChunkRule = stsc[0];
+            let nextChunkRule = stsc[1];
+            let sampleToChunkOffset = 0;
+            let chunkNumber = 1;
+            sampleNumber = 0;
+            for (let i = 0; i < stco.length; i++) {
+                if (nextChunkRule != undefined && chunkNumber >= nextChunkRule.firstChunk) {
+                    sampleToChunkOffset++;
+                    currentChunkRule = nextChunkRule;
+                    nextChunkRule = stsc[sampleToChunkOffset + 1];
+                }
+                let currentChunk = {
+                    offset: stco[chunkNumber - 1],
+                    type: 'audio',
+                    samples: []
+                };
+                for (let j = 0; j < currentChunkRule.samplesPerChunk; j++) {
+                    currentChunk.samples.push({
+                        ts: sampleTsMap.audio[sampleNumber],
+                        size: stsz[sampleNumber++]
+                    });
+                }
+                chunkMap.push(currentChunk);
+                chunkNumber++;
             }
             mediaInfo.audioDataRate = size / mediaInfo.duration * 8;
+            let meta = {};
+            meta.type = 'audio';
+            meta.audioSampleRate = mediaInfo.audioSampleRate;
+            meta.channelCount = mediaInfo.audioChannelCount;
+            meta.codec = mediaInfo.audioCodec;
+            meta.config = specDesc.data;
+            meta.duration = (tracks.audio.mdia[0].mdhd.duration / timeScale * 1e3) | 0;
+            meta.id = id++;
+            meta.refSampleDuration = Math.floor(1024 / meta.audioSampleRate * timeScale);
+            meta.timescale = 1000;
+            this._onTrackMetadata('audio', meta);
+            this._audioMetadata = meta;
         }
+        if (codecs.length > 0) {
+            mediaInfo.mimeType += '; codecs="' + codecs.join(',') + '"';
+        }
+        let bitrateMap = [];
+        for (let i = 0; i < maxDuration; i++) {
+            let size = 0;
+            if (mediaInfo.hasVideo) {
+                size += bitrateMapTrack.video[i];
+            }
+            if (mediaInfo.hasAudio) {
+                size += bitrateMapTrack.audio[i];
+            }
+            bitrateMap[i] = size * 8 / 1e3;
+        }
+        mediaInfo.bitrateMap = bitrateMap;
+        chunkMap.sort(function (a, b) {
+            return a.offset - b.offset;
+        });
+        this._mediaInfo = mediaInfo;
+        if (mediaInfo.isComplete())
+            this._onMediaInfo(mediaInfo);
+        this._chunkMap = chunkMap;
     }
 
     bindDataSource(loader) {
