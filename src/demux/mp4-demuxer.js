@@ -684,6 +684,7 @@ class MP4Demuxer {
                         currentCtsRule = ctts[++cttsOffset];
                         currentCtsLeft = currentCtsRule.sampleCount;
                     }
+                    currentCtsLeft--;
                     currentChunk.samples.push({
                         ts: sampleTsMap.video[sampleNumber],
                         cts: (currentCtsRule.compositionOffset / timeScale * 1e3) | 0,
@@ -984,7 +985,7 @@ class MP4Demuxer {
                     }
                     let track = this._audioTrack;
                     let dts = this._timestampBase + sample.ts;
-                    let aacSample = { unit: v.subarray(0, 4 + sampleSize), dts: dts, pts: dts };
+                    let aacSample = { unit: v.subarray(0, sampleSize), dts: dts, pts: dts };
                     track.samples.push(aacSample);
                     track.length += aacSample.unit.length;
                 }
