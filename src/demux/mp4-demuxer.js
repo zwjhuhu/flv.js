@@ -1,7 +1,5 @@
 /*
- * Copyright (C) 2016 Bilibili. All Rights Reserved.
- *
- * @author zheng qian <xqq@xqq.im>
+ * @author esterTion <esterTionCN@gmail.com>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,17 +20,6 @@ import DemuxErrors from './demux-errors.js';
 import MediaInfo from '../core/media-info.js';
 import { IllegalStateException } from '../utils/exception.js';
 
-function Swap16(src) {
-    return (((src >>> 8) & 0xFF) |
-        ((src & 0xFF) << 8));
-}
-
-function Swap32(src) {
-    return (((src & 0xFF000000) >>> 24) |
-        ((src & 0x00FF0000) >>> 8) |
-        ((src & 0x0000FF00) << 8) |
-        ((src & 0x000000FF) << 24));
-}
 
 function ReadBig16(array, index) {
     return ((array[index] << 8) |
@@ -225,28 +212,30 @@ class MP4Demuxer {
         let data = new Uint8Array(buffer);
         let mismatch = { match: false };
 
-        // no fytp box found, mismatch
+        // no ftyp box found, mismatch
         let ftyp = boxInfo(data, 0);
         if (ftyp.name != 'ftyp' || !ftyp.fullyLoaded) {
             return mismatch;
         }
 
         let offset = ftyp.size;
-        let bpx = boxInfo(data, offset);
+        let box = boxInfo(data, offset);
 
-        while (bpx.fullyLoaded) {
-            if (bpx.name == 'moov')
+        //skip all non-moov box until stream ends
+        while (box.fullyLoaded) {
+            if (box.name == 'moov')
                 break;
-            offset += bpx.size;
-            bpx = boxInfo(data, offset);
+            offset += box.size;
+            box = boxInfo(data, offset);
         }
-        if (bpx.name != 'moov') {
+        //no moov found in file header, not supported at this time
+        if (box.name != 'moov') {
             return mismatch;
         }
 
         return {
             match: true,
-            enoughData: bpx.fullyLoaded,
+            enoughData: box.fullyLoaded,
             consumed: offset,
             dataOffset: offset,
         };
@@ -824,6 +813,56 @@ class MP4Demuxer {
         Log.v(this.TAG, 'Parsed moov box, hasVideo: ' + mediaInfo.hasVideo + ' hasAudio: ' + mediaInfo.hasAudio);
     }
 
+    _parseKeyframesIndex(stbl, tsMap) {
+        let times = [];
+        let filepositions = [];
+
+        let syncSamples = stbl.stss;
+        let sampleToChunk = stbl.stsc;
+        let chunkOffset = stbl.stco;
+        let sampleSize = stbl.stsz;
+
+        let sampleNumber = 1;
+        let chunkNumber = 1;
+        let timeOffset = 0;
+        let sampleToChunkOffset = 0;
+        let currentChunkRule = sampleToChunk[0];
+        let nextChunkRule = sampleToChunk[1];
+        /*
+        syncSamples内遍历keyframe对应sample
+            查找keyFrame对应时间 timeToSample
+            *改为传入tsMap
+            查找Sample所在chunk sampleToChunk
+                查找chunk对应offset syncSample
+                    去除chunk内之前的无关sample sampleSize
+                    *已取消chunk内偏移
+        */
+        for (let i = 0; i < syncSamples.length; i++) {
+            let keySample = syncSamples[i];
+            times.push(this._timestampBase + tsMap[keySample - 1]);
+
+            for (; ;) {
+                if (nextChunkRule != undefined && chunkNumber >= nextChunkRule.firstChunk) {
+                    sampleToChunkOffset++;
+                    currentChunkRule = nextChunkRule;
+                    nextChunkRule = sampleToChunk[sampleToChunkOffset + 1];
+                }
+                sampleNumber += currentChunkRule.samplesPerChunk;
+                if (sampleNumber > keySample) {
+                    break;
+                }
+                chunkNumber++;
+            }
+            let fileposition = chunkOffset[chunkNumber - 1];
+            filepositions.push(fileposition);
+        }
+
+        return {
+            times: times,
+            filepositions: filepositions
+        };
+    }
+
     bindDataSource(loader) {
         loader.onDataArrival = this.parseChunks.bind(this);
         return this;
@@ -928,6 +967,7 @@ class MP4Demuxer {
 
             let uintarr = new Uint8Array(chunk);
             let moov = boxInfo(uintarr, offset);
+            //moov still not finished, wait for it
             if (!moov.fullyLoaded) {
                 this._firstParse = true;
                 return 0;
@@ -949,6 +989,7 @@ class MP4Demuxer {
 
             let chunkMap = this._chunkMap;
             if (this._mdatEnd > byteStart + offset) {
+                //find the chunk
                 let sampleOffset = byteStart + offset;
                 let dataChunk = chunkMap[0];
                 for (let i = 1; i < chunkMap.length; i++) {
@@ -959,6 +1000,7 @@ class MP4Demuxer {
                     }
                 }
 
+                //find out which sample
                 sampleOffset -= dataChunk.offset;
                 let sample;
                 for (let i = 0; i < dataChunk.samples.length; i++) {
@@ -968,9 +1010,11 @@ class MP4Demuxer {
                     }
                     sampleOffset -= dataChunk.samples[i].size;
                 }
+
                 if (!sample) {
                     break;
                 }
+                
                 let sampleSize;
                 if (dataChunk.type == 'video') {
                     sampleSize = sample.size;
@@ -1016,55 +1060,6 @@ class MP4Demuxer {
         }
 
         return offset;  // consumed bytes, just equals latest offset index
-    }
-
-    _parseKeyframesIndex(stbl, tsMap) {
-        let times = [];
-        let filepositions = [];
-
-        let syncSamples = stbl.stss;
-        let sampleToChunk = stbl.stsc;
-        let chunkOffset = stbl.stco;
-        let sampleSize = stbl.stsz;
-
-        let sampleNumber = 1;
-        let chunkNumber = 1;
-        let timeOffset = 0;
-        let sampleToChunkOffset = 0;
-        let currentChunkRule = sampleToChunk[0];
-        let nextChunkRule = sampleToChunk[1];
-        /*
-        syncSamples内遍历keyframe对应sample
-            查找keyFrame对应时间 timeToSample
-            *改为传入tsMap
-            查找Sample所在chunk sampleToChunk
-                查找chunk对应offset syncSample
-                    去除chunk内之前的无关sample sampleSize
-        */
-        for (let i = 0; i < syncSamples.length; i++) {
-            let keySample = syncSamples[i];
-            times.push(this._timestampBase + tsMap[keySample - 1]);
-
-            for (; ;) {
-                if (nextChunkRule != undefined && chunkNumber >= nextChunkRule.firstChunk) {
-                    sampleToChunkOffset++;
-                    currentChunkRule = nextChunkRule;
-                    nextChunkRule = sampleToChunk[sampleToChunkOffset + 1];
-                }
-                sampleNumber += currentChunkRule.samplesPerChunk;
-                if (sampleNumber > keySample) {
-                    break;
-                }
-                chunkNumber++;
-            }
-            let fileposition = chunkOffset[chunkNumber - 1];
-            filepositions.push(fileposition);
-        }
-
-        return {
-            times: times,
-            filepositions: filepositions
-        };
     }
 
     _parseAVCVideoData(arrayBuffer, dataOffset, dataSize, tagTimestamp, tagPosition, frameType, cts) {
