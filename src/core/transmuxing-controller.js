@@ -21,7 +21,7 @@ import Log from '../utils/logger.js';
 import Browser from '../utils/browser.js';
 import MediaInfo from './media-info.js';
 import FLVDemuxer from '../demux/flv-demuxer.js';
-import MP4Demuxer from '../demux/MP4-demuxer.js';
+import MP4Demuxer from '../demux/mp4-demuxer.js';
 import MP4Remuxer from '../remux/mp4-remuxer.js';
 import DemuxErrors from '../demux/demux-errors.js';
 import IOController from '../io/io-controller.js';
@@ -65,6 +65,10 @@ class TransmuxingController {
             // params needed by IOController
             segment.cors = mediaDataSource.cors;
             segment.withCredentials = mediaDataSource.withCredentials;
+            // referrer policy control, if exist
+            if (config.referrerPolicy) {
+                segment.referrerPolicy = config.referrerPolicy;
+            }
         });
 
         if (!isNaN(totalDuration) && this._mediaDataSource.duration !== totalDuration) {
