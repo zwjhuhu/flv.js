@@ -506,9 +506,10 @@ class FLVDemuxer {
                 meta.audioSampleRate = misc.samplingRate;
                 meta.channelCount = misc.channelCount;
                 meta.codec = misc.codec;
+                meta.originalCodec = misc.originalCodec;
                 meta.config = misc.config;
                 // The decode result of an aac sample is 1024 PCM samples
-                meta.refSampleDuration = Math.floor(1024 / meta.audioSampleRate * meta.timescale);
+                meta.refSampleDuration = 1024 / meta.audioSampleRate * meta.timescale;
                 Log.v(this.TAG, 'Parsed AudioSpecificConfig');
 
                 if (this._isInitialMetadataDispatched()) {
@@ -524,7 +525,7 @@ class FLVDemuxer {
                 this._onTrackMetadata('audio', meta);
 
                 let mi = this._mediaInfo;
-                mi.audioCodec = 'mp4a.40.' + misc.originalAudioObjectType;
+                mi.audioCodec = meta.originalCodec;
                 mi.audioSampleRate = meta.audioSampleRate;
                 mi.audioChannelCount = meta.channelCount;
                 if (mi.hasVideo) {
@@ -555,8 +556,9 @@ class FLVDemuxer {
                 meta.audioSampleRate = misc.samplingRate;
                 meta.channelCount = misc.channelCount;
                 meta.codec = misc.codec;
+                meta.originalCodec = misc.originalCodec;
                 // The decode result of an mp3 sample is 1152 PCM samples
-                meta.refSampleDuration = Math.floor(1152 / meta.audioSampleRate * meta.timescale);
+                meta.refSampleDuration = 1152 / meta.audioSampleRate * meta.timescale;
                 Log.v(this.TAG, 'Parsed MPEG Audio Frame Header');
 
                 this._audioInitialMetadataDispatched = true;
@@ -708,7 +710,7 @@ class FLVDemuxer {
             samplingRate: samplingFrequence,
             channelCount: channelConfig,
             codec: 'mp4a.40.' + audioObjectType,
-            originalAudioObjectType: originalAudioObjectType
+            originalCodec: 'mp4a.40.' + originalAudioObjectType
         };
     }
 
@@ -778,7 +780,8 @@ class FLVDemuxer {
                 bitRate: bit_rate,
                 samplingRate: sample_rate,
                 channelCount: channel_count,
-                codec: codec
+                codec: codec,
+                originalCodec: codec
             };
         } else {
             result = array;
@@ -928,7 +931,7 @@ class FLVDemuxer {
 
             let fps_den = meta.frameRate.fps_den;
             let fps_num = meta.frameRate.fps_num;
-            meta.refSampleDuration = Math.floor(meta.timescale * (fps_den / fps_num));
+            meta.refSampleDuration = meta.timescale * (fps_den / fps_num);
 
             let codecArray = sps.subarray(1, 4);
             let codecString = 'avc1.';
