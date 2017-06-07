@@ -711,7 +711,7 @@ class MP4Demuxer {
             meta.presentHeight = sps.present_size.height;
             meta.presentWidth = sps.present_size.width;
             meta.profile = sps.profile_string;
-            meta.refSampleDuration = Math.floor(meta.timescale * (meta.frameRate.fps_den / meta.frameRate.fps_num));
+            meta.refSampleDuration = meta.timescale * (meta.frameRate.fps_den / meta.frameRate.fps_num);
             meta.sarRatio = sps.sar_ratio;
             meta.type = 'video';
             this._onTrackMetadata('video', meta);
@@ -779,10 +779,11 @@ class MP4Demuxer {
             meta.audioSampleRate = mediaInfo.audioSampleRate;
             meta.channelCount = mediaInfo.audioChannelCount;
             meta.codec = mediaInfo.audioCodec;
+            meta.originalCodec = meta.codec;
             meta.config = specDesc.data;
             meta.duration = this._duration;
             meta.id = id++;
-            meta.refSampleDuration = Math.floor(1024 / meta.audioSampleRate * timeScale);
+            meta.refSampleDuration = 1024 / meta.audioSampleRate * timeScale;
             meta.timescale = 1000;
             this._onTrackMetadata('audio', meta);
             this._audioInitialMetadataDispatched = true;
@@ -1014,7 +1015,7 @@ class MP4Demuxer {
                 if (!sample) {
                     break;
                 }
-                
+
                 let sampleSize;
                 if (dataChunk.type == 'video') {
                     sampleSize = sample.size;
