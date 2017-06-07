@@ -259,6 +259,7 @@ class MP4Demuxer {
                     parent[box.name].push({});
                     parseMoov(parent[box.name][parent[box.name].length - 1], data, index + offset + 8, box.size - 8);
                 } else {
+                    let body;
                     switch (box.name) {
                         case 'mvhd': {
                             /*
@@ -281,9 +282,9 @@ class MP4Demuxer {
                             current 4   92
                             nextID  4   96
                             */
-                            let mvhd = new Uint8Array(data.buffer, data.byteOffset + index + offset + 8, box.size - 8);
-                            let timeScale = ReadBig32(mvhd, 12);
-                            let duration = ReadBig32(mvhd, 16);
+                            body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 8, box.size - 8);
+                            let timeScale = ReadBig32(body, 12);
+                            let duration = ReadBig32(body, 16);
                             parent[box.name] = {
                                 timeScale,
                                 duration
@@ -309,18 +310,18 @@ class MP4Demuxer {
                             Twidth  4   76
                             Theight 4   80
                             */
-                            let tkhd = new Uint8Array(data.buffer, data.byteOffset + index + offset + 8, box.size - 8);
+                            body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 8, box.size - 8);
                             let flags = {
-                                trackEnbaled: tkhd[3] & 1,
-                                trackInMovie: (tkhd[3] & 2) >> 1,
-                                trackInPreview: (tkhd[3] & 4) >> 2,
-                                trackInPoster: (tkhd[3] & 8) >> 3
+                                trackEnbaled: body[3] & 1,
+                                trackInMovie: (body[3] & 2) >> 1,
+                                trackInPreview: (body[3] & 4) >> 2,
+                                trackInPoster: (body[3] & 8) >> 3
                             };
-                            let trackID = ReadBig32(tkhd, 12);
-                            let duration = ReadBig32(tkhd, 20);
-                            let group = ReadBig16(tkhd, 34);
-                            let trackWidth = parseFloat(ReadBig16(tkhd, 72) + '.' + ReadBig16(tkhd, 74));
-                            let trackHeight = parseFloat(ReadBig16(tkhd, 76) + '.' + ReadBig16(tkhd, 78));
+                            let trackID = ReadBig32(body, 12);
+                            let duration = ReadBig32(body, 20);
+                            let group = ReadBig16(body, 34);
+                            let trackWidth = parseFloat(ReadBig16(body, 72) + '.' + ReadBig16(body, 74));
+                            let trackHeight = parseFloat(ReadBig16(body, 76) + '.' + ReadBig16(body, 78));
 
                             parent[box.name] = {
                                 flags,
@@ -344,11 +345,11 @@ class MP4Demuxer {
                             lang    2   20
                             quality 2   22
                             */
-                            let mdhd = new Uint8Array(data.buffer, data.byteOffset + index + offset + 8, box.size - 8);
-                            let timeScale = ReadBig32(mdhd, 12);
-                            let duration = ReadBig32(mdhd, 16);
-                            let language = ReadBig16(mdhd, 20);
-                            let quality = ReadBig16(mdhd, 22);
+                            body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 8, box.size - 8);
+                            let timeScale = ReadBig32(body, 12);
+                            let duration = ReadBig32(body, 16);
+                            let language = ReadBig16(body, 20);
+                            let quality = ReadBig16(body, 22);
 
                             parent[box.name] = {
                                 timeScale,
@@ -365,22 +366,22 @@ class MP4Demuxer {
                             break;
                         }
                         case 'avc1': {
-                            let vdes = new Uint8Array(data.buffer, data.byteOffset + index + offset + 8, box.size - 8);
-                            let dataReferenceIndex = ReadBig32(vdes, 4);
-                            let version = ReadBig16(vdes, 8);
-                            let revisionLevel = ReadBig16(vdes, 10);
-                            let vendor = ReadBig32(vdes, 12);
-                            let temporalQuality = ReadBig32(vdes, 16);
-                            let spatialQuality = ReadBig32(vdes, 20);
-                            let width = ReadBig16(vdes, 24);
-                            let height = ReadBig16(vdes, 26);
-                            let horizontalResolution = parseFloat(ReadBig16(vdes, 28) + '.' + ReadBig16(vdes, 30));
-                            let verticalResolution = parseFloat(ReadBig16(vdes, 32) + '.' + ReadBig16(vdes, 34));
-                            let dataSize = ReadBig32(vdes, 36);
-                            let frameCount = ReadBig16(vdes, 40);
-                            let compressorName = ReadString(vdes, 42, 32);
-                            let depth = ReadBig16(vdes, 74);
-                            let colorTableID = ReadBig16(vdes, 76);
+                            body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 8, box.size - 8);
+                            let dataReferenceIndex = ReadBig32(body, 4);
+                            let version = ReadBig16(body, 8);
+                            let revisionLevel = ReadBig16(body, 10);
+                            let vendor = ReadBig32(body, 12);
+                            let temporalQuality = ReadBig32(body, 16);
+                            let spatialQuality = ReadBig32(body, 20);
+                            let width = ReadBig16(body, 24);
+                            let height = ReadBig16(body, 26);
+                            let horizontalResolution = parseFloat(ReadBig16(body, 28) + '.' + ReadBig16(body, 30));
+                            let verticalResolution = parseFloat(ReadBig16(body, 32) + '.' + ReadBig16(body, 34));
+                            let dataSize = ReadBig32(body, 36);
+                            let frameCount = ReadBig16(body, 40);
+                            let compressorName = ReadString(body, 42, 32);
+                            let depth = ReadBig16(body, 74);
+                            let colorTableID = ReadBig16(body, 76);
 
                             parent[box.name] = {
                                 dataReferenceIndex,
@@ -404,22 +405,22 @@ class MP4Demuxer {
                             break;
                         }
                         case 'avcC': {
-                            let avcC = new Uint8Array(data.buffer, data.byteOffset + index + offset + 8, box.size - 8);
-                            let configurationVersion = avcC[0];
-                            let avcProfileIndication = avcC[1];
-                            let profile_compatibility = avcC[2];
-                            let AVCLevelIndication = avcC[3];
-                            let lengthSizeMinusOne = avcC[4] & 0x3;
-                            let nb_nalus = avcC[5] & 0x1f;
+                            body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 8, box.size - 8);
+                            let configurationVersion = body[0];
+                            let avcProfileIndication = body[1];
+                            let profile_compatibility = body[2];
+                            let AVCLevelIndication = body[3];
+                            let lengthSizeMinusOne = body[4] & 0x3;
+                            let nb_nalus = body[5] & 0x1f;
                             let SPS = new Array(nb_nalus);
                             let recordLength;
                             let boxOffset = 6;
                             for (let i = 0; i < nb_nalus; i++) {
-                                recordLength = ReadBig16(avcC, offset);
+                                recordLength = ReadBig16(body, offset);
                                 boxOffset += 2;
                                 SPS[i] = SPSParser.parseSPS(new Uint8Array(data.buffer, data.byteOffset + index + offset + 8 + boxOffset, recordLength));
                                 let codecString = 'avc1.';
-                                let codecArray = avcC.subarray(boxOffset + 1, boxOffset + 4);
+                                let codecArray = body.subarray(boxOffset + 1, boxOffset + 4);
                                 for (let j = 0; j < 3; j++) {
                                     let h = codecArray[j].toString(16);
                                     if (h.length < 2) {
@@ -430,11 +431,11 @@ class MP4Demuxer {
                                 SPS[i].codecString = codecString;
                                 boxOffset += recordLength;
                             }
-                            nb_nalus = avcC[boxOffset];
+                            nb_nalus = body[boxOffset];
                             let PPS = new Array(nb_nalus);
                             boxOffset++;
                             for (let i = 0; i < nb_nalus; i++) {
-                                recordLength = ReadBig16(avcC, offset);
+                                recordLength = ReadBig16(body, offset);
                                 boxOffset += 2;
                                 //ignoring PPS
                                 boxOffset += recordLength;
@@ -446,21 +447,21 @@ class MP4Demuxer {
                                 AVCLevelIndication,
                                 lengthSizeMinusOne,
                                 SPS,
-                                data: avcC
+                                data: body
                             };
                             break;
                         }
                         case 'mp4a': {
-                            let ades = new Uint8Array(data.buffer, data.byteOffset + index + offset + 8, box.size - 8);
-                            let dataReferenceIndex = ReadBig32(ades, 4);
-                            let version = ReadBig16(ades, 8);
-                            let revisionLevel = ReadBig16(ades, 10);
-                            let vendor = ReadBig32(ades, 12);
-                            let channels = ReadBig16(ades, 16);
-                            let sampleSize = ReadBig16(ades, 18);
-                            let compressionID = ReadBig16(ades, 20);
-                            let packetSize = ReadBig16(ades, 22);
-                            let sampleRate = ReadBig16(ades, 24);
+                            body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 8, box.size - 8);
+                            let dataReferenceIndex = ReadBig32(body, 4);
+                            let version = ReadBig16(body, 8);
+                            let revisionLevel = ReadBig16(body, 10);
+                            let vendor = ReadBig32(body, 12);
+                            let channels = ReadBig16(body, 16);
+                            let sampleSize = ReadBig16(body, 18);
+                            let compressionID = ReadBig16(body, 20);
+                            let packetSize = ReadBig16(body, 22);
+                            let sampleRate = ReadBig16(body, 24);
                             //unknown two bytes here???
                             parent[box.name] = {
                                 dataReferenceIndex,
@@ -478,20 +479,20 @@ class MP4Demuxer {
                             break;
                         }
                         case 'esds': {
-                            let esds = new Uint8Array(data.buffer, data.byteOffset + index + offset + 8, box.size - 8);
+                            body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 8, box.size - 8);
                             let esdsData = {};
-                            esdsParse(esdsData, esds, 4);
+                            esdsParse(esdsData, body, 4);
                             parent[box.name] = esdsData;
                             break;
                         }
                         case 'stts': {
-                            let stts = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
-                            let entryCount = ReadBig32(stts, 0);
+                            body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
+                            let entryCount = ReadBig32(body, 0);
                             let sampleTable = new Array(entryCount);
                             let boxOffset = 4;
                             for (let i = 0; i < entryCount; i++) {
-                                let sampleCount = ReadBig32(stts, boxOffset);
-                                let sampleDuration = ReadBig32(stts, boxOffset + 4);
+                                let sampleCount = ReadBig32(body, boxOffset);
+                                let sampleDuration = ReadBig32(body, boxOffset + 4);
                                 sampleTable[i] = {
                                     sampleCount, sampleDuration
                                 };
@@ -501,13 +502,13 @@ class MP4Demuxer {
                             break;
                         }
                         case 'ctts': {
-                            let ctts = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
-                            let entryCount = ReadBig32(ctts, 0);
+                            body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
+                            let entryCount = ReadBig32(body, 0);
                             let sampleTable = new Array(entryCount);
                             let boxOffset = 4;
                             for (let i = 0; i < entryCount; i++) {
-                                let sampleCount = ReadBig32(ctts, boxOffset);
-                                let compositionOffset = ReadBig32(ctts, boxOffset + 4);
+                                let sampleCount = ReadBig32(body, boxOffset);
+                                let compositionOffset = ReadBig32(body, boxOffset + 4);
                                 sampleTable[i] = {
                                     sampleCount, compositionOffset
                                 };
@@ -517,26 +518,26 @@ class MP4Demuxer {
                             break;
                         }
                         case 'stss': {
-                            let stss = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
-                            let entryCount = ReadBig32(stss, 0);
+                            body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
+                            let entryCount = ReadBig32(body, 0);
                             let sampleTable = new Array(entryCount);
                             let boxOffset = 4;
                             for (let i = 0; i < entryCount; i++) {
-                                sampleTable[i] = ReadBig32(stss, boxOffset);
+                                sampleTable[i] = ReadBig32(body, boxOffset);
                                 boxOffset += 4;
                             }
                             parent[box.name] = sampleTable;
                             break;
                         }
                         case 'stsc': {
-                            let stsc = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
-                            let entryCount = ReadBig32(stsc, 0);
+                            body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
+                            let entryCount = ReadBig32(body, 0);
                             let sampleTable = new Array(entryCount);
                             let boxOffset = 4;
                             for (let i = 0; i < entryCount; i++) {
-                                let firstChunk = ReadBig32(stsc, boxOffset);
-                                let samplesPerChunk = ReadBig32(stsc, boxOffset + 4);
-                                let sampleDescID = ReadBig32(stsc, boxOffset + 8);
+                                let firstChunk = ReadBig32(body, boxOffset);
+                                let samplesPerChunk = ReadBig32(body, boxOffset + 4);
+                                let sampleDescID = ReadBig32(body, boxOffset + 8);
                                 sampleTable[i] = {
                                     firstChunk, samplesPerChunk, sampleDescID
                                 };
@@ -546,13 +547,13 @@ class MP4Demuxer {
                             break;
                         }
                         case 'stsz': {
-                            let stsz = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
-                            let sampleSize = ReadBig32(stsz, 0);
-                            let entryCount = ReadBig32(stsz, 4);
+                            body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
+                            let sampleSize = ReadBig32(body, 0);
+                            let entryCount = ReadBig32(body, 4);
                             let sampleTable = new Array(entryCount);
                             let boxOffset = 8;
                             for (let i = 0; i < entryCount; i++) {
-                                sampleTable[i] = ReadBig32(stsz, boxOffset);
+                                sampleTable[i] = ReadBig32(body, boxOffset);
                                 boxOffset += 4;
                             }
                             parent[box.name] = {
@@ -562,15 +563,23 @@ class MP4Demuxer {
                             break;
                         }
                         case 'stco': {
-                            let stco = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
-                            let entryCount = ReadBig32(stco, 0);
+                            body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
+                            let entryCount = ReadBig32(body, 0);
                             let sampleTable = new Array(entryCount);
                             let boxOffset = 4;
                             for (let i = 0; i < entryCount; i++) {
-                                sampleTable[i] = ReadBig32(stco, boxOffset);
+                                sampleTable[i] = ReadBig32(body, boxOffset);
                                 boxOffset += 4;
                             }
                             parent[box.name] = sampleTable;
+                            break;
+                        }
+                        case 'hdlr': {
+                            body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
+                            let handler = ReadString(body, 4, 4);
+                            parent[box.name] = {
+                                handler
+                            };
                             break;
                         }
                     }
@@ -590,12 +599,17 @@ class MP4Demuxer {
         ];
         for (let i = 0; i < trak.length; i++) {
             let track = trak[i];
-            let stsd = track.mdia[0].minf[0].stbl[0].stsd[0];
             let group = -1;
-            if (stsd.avc1)
-                group = 0;
-            else if (stsd.mp4a)
-                group = 1;
+            switch (track.mdia[0].hdlr.handler) {
+                case 'vide': {
+                    group = 0;
+                    break;
+                }
+                case 'soun': {
+                    group = 1;
+                    break;
+                }
+            }
             if (!groups[group]) {
                 continue;
             }
@@ -711,7 +725,7 @@ class MP4Demuxer {
             meta.presentHeight = sps.present_size.height;
             meta.presentWidth = sps.present_size.width;
             meta.profile = sps.profile_string;
-            meta.refSampleDuration = Math.floor(meta.timescale * (meta.frameRate.fps_den / meta.frameRate.fps_num));
+            meta.refSampleDuration = meta.timescale * (meta.frameRate.fps_den / meta.frameRate.fps_num);
             meta.sarRatio = sps.sar_ratio;
             meta.type = 'video';
             this._onTrackMetadata('video', meta);
@@ -779,10 +793,11 @@ class MP4Demuxer {
             meta.audioSampleRate = mediaInfo.audioSampleRate;
             meta.channelCount = mediaInfo.audioChannelCount;
             meta.codec = mediaInfo.audioCodec;
+            meta.originalCodec = meta.codec;
             meta.config = specDesc.data;
             meta.duration = this._duration;
             meta.id = id++;
-            meta.refSampleDuration = Math.floor(1024 / meta.audioSampleRate * timeScale);
+            meta.refSampleDuration = 1024 / meta.audioSampleRate * timeScale;
             meta.timescale = 1000;
             this._onTrackMetadata('audio', meta);
             this._audioInitialMetadataDispatched = true;
@@ -1014,7 +1029,7 @@ class MP4Demuxer {
                 if (!sample) {
                     break;
                 }
-                
+
                 let sampleSize;
                 if (dataChunk.type == 'video') {
                     sampleSize = sample.size;
