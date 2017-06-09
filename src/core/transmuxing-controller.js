@@ -211,6 +211,7 @@ class TransmuxingController {
                 this._remuxer.insertDiscontinuity();
                 this._demuxer.resetMediaInfo();
                 this._demuxer.timestampBase = this._mediaDataSource.segments[targetSegmentIndex].timestampBase;
+                this._demuxer._mediaInfo.bitrateMap = this._bitrateMap[targetSegmentIndex];
                 this._loadSegment(targetSegmentIndex, keyframe.fileposition);
                 this._pendingResolveSeekPoint = keyframe.milliseconds;
                 this._reportSegmentMediaInfo(targetSegmentIndex);
