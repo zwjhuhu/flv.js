@@ -90,6 +90,8 @@ class FLVDemuxer {
         this._totalBytes = 0;
         this._prevTime = 0;
         this._prevOffset = 0;
+        this._liveTsOffsetSet = false;
+        this._liveTsOffset = 0;
 
         this._flvSoundRateTable = [5500, 11025, 22050, 44100, 48000];
 
@@ -323,7 +325,14 @@ class FLVDemuxer {
                 this.tsBase = timestamp;
             }
             this._totalBytes += dataSize;
-            let currentTime = Math.ceil((timestamp - this.tsBase || 0) / 1e3);
+
+            if (!this._liveTsOffsetSet && timestamp != 0) {
+                this._liveTsOffsetSet = true;
+                if (timestamp > 5e3) {
+                    this._liveTsOffset = timestamp;
+                }
+            }
+            let currentTime = Math.ceil((timestamp - this.tsBase - this._liveTsOffset || 0) / 1e3);
             let delta = this._totalBytes - this._prevOffset;
             if (currentTime == this._prevTime + 1)
                 this._recordRealtimeBitrate(currentTime, delta);
