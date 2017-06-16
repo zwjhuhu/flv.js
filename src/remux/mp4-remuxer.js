@@ -538,6 +538,13 @@ class MP4Remuxer {
                 }
             }
 
+            sampleDuration += dtsCorrection;
+            if (dtsCorrection > this._videoMeta.refSampleDuration * 1.5) {
+                Log.w(this.TAG, 'Large video timestamp gap detected, ' +
+                                `dts: ${dts + sampleDuration} ms, expected: ${dts + Math.round(this._videoMeta.refSampleDuration)} ms. `);
+            }
+            dtsCorrection = 0;
+
             if (isKeyframe) {
                 let syncPoint = new SampleInfo(dts, pts, sampleDuration, sample.dts, true);
                 syncPoint.fileposition = sample.fileposition;
