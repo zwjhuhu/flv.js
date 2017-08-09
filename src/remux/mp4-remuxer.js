@@ -544,6 +544,10 @@ class MP4Remuxer {
                                 `dts: ${dts + sampleDuration} ms, expected: ${dts + Math.round(this._videoMeta.refSampleDuration)} ms. `);
             }
             dtsCorrection = 0;
+            if (sampleDuration < 5) {
+                dtsCorrection = sampleDuration - 5;
+                sampleDuration = 5;
+            }
 
             if (isKeyframe) {
                 let syncPoint = new SampleInfo(dts, pts, sampleDuration, sample.dts, true);
