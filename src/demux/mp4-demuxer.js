@@ -671,6 +671,7 @@ class MP4Demuxer {
             let sampleToChunkOffset = 0;
             let chunkNumber = 1;
             sampleNumber = 0;
+            let keyframesIndex = { times: [], filepositions: [] };
             for (let i = 0; i < stco.length; i++) {
                 if (nextChunkRule != undefined && chunkNumber >= nextChunkRule.firstChunk) {
                     sampleToChunkOffset++;
@@ -682,18 +683,28 @@ class MP4Demuxer {
                     type: 'video',
                     samples: []
                 };
-                for (let j = 0; j < currentChunkRule.samplesPerChunk; j++) {
+                for (let j = 0, sampleOffset = 0; j < currentChunkRule.samplesPerChunk; j++) {
                     if (currentCtsLeft == 0) {
                         currentCtsRule = ctts[++cttsOffset];
                         currentCtsLeft = currentCtsRule.sampleCount;
                     }
                     currentCtsLeft--;
+                    let ts = sampleTsMap.video[sampleNumber];
+                    let cts = (currentCtsRule.compositionOffset / timeScale * 1e3) | 0;
+                    let size = stsz[sampleNumber++];
+                    let isKeyframe = stss.indexOf(sampleNumber) != -1;
                     currentChunk.samples.push({
-                        ts: sampleTsMap.video[sampleNumber],
-                        cts: (currentCtsRule.compositionOffset / timeScale * 1e3) | 0,
-                        size: stsz[sampleNumber++],
-                        isKeyframe: stss.indexOf(sampleNumber) != -1
+                        ts,
+                        cts,
+                        size,
+                        isKeyframe
                     });
+
+                    if (isKeyframe) {
+                        keyframesIndex.times.push(this._timestampBase + ts);
+                        keyframesIndex.filepositions.push(currentChunk.offset + sampleOffset);
+                    }
+                    sampleOffset += size;
                 }
                 chunkMap.push(currentChunk);
                 chunkNumber++;
@@ -708,7 +719,7 @@ class MP4Demuxer {
             mediaInfo.sarNum = sps.sar_ratio.width;
             mediaInfo.sarDen = sps.sar_ratio.height;
             mediaInfo.hasKeyframesIndex = true;
-            mediaInfo.keyframesIndex = this._parseKeyframesIndex(tracks.video.mdia[0].minf[0].stbl[0], sampleTsMap.video);
+            mediaInfo.keyframesIndex = keyframesIndex;
 
             let meta = {};
             meta.avcc = tracks.video.mdia[0].minf[0].stbl[0].stsd[0].avc1.extensions.avcC.data;
@@ -826,56 +837,6 @@ class MP4Demuxer {
         if (mediaInfo.isComplete())
             this._onMediaInfo(mediaInfo);
         Log.v(this.TAG, 'Parsed moov box, hasVideo: ' + mediaInfo.hasVideo + ' hasAudio: ' + mediaInfo.hasAudio);
-    }
-
-    _parseKeyframesIndex(stbl, tsMap) {
-        let times = [];
-        let filepositions = [];
-
-        let syncSamples = stbl.stss;
-        let sampleToChunk = stbl.stsc;
-        let chunkOffset = stbl.stco;
-        let sampleSize = stbl.stsz;
-
-        let sampleNumber = 1;
-        let chunkNumber = 1;
-        let timeOffset = 0;
-        let sampleToChunkOffset = 0;
-        let currentChunkRule = sampleToChunk[0];
-        let nextChunkRule = sampleToChunk[1];
-        /*
-        syncSamples内遍历keyframe对应sample
-            查找keyFrame对应时间 timeToSample
-            *改为传入tsMap
-            查找Sample所在chunk sampleToChunk
-                查找chunk对应offset syncSample
-                    去除chunk内之前的无关sample sampleSize
-                    *已取消chunk内偏移
-        */
-        for (let i = 0; i < syncSamples.length; i++) {
-            let keySample = syncSamples[i];
-            times.push(this._timestampBase + tsMap[keySample - 1]);
-
-            for (; ;) {
-                if (nextChunkRule != undefined && chunkNumber >= nextChunkRule.firstChunk) {
-                    sampleToChunkOffset++;
-                    currentChunkRule = nextChunkRule;
-                    nextChunkRule = sampleToChunk[sampleToChunkOffset + 1];
-                }
-                sampleNumber += currentChunkRule.samplesPerChunk;
-                if (sampleNumber > keySample) {
-                    break;
-                }
-                chunkNumber++;
-            }
-            let fileposition = chunkOffset[chunkNumber - 1];
-            filepositions.push(fileposition);
-        }
-
-        return {
-            times: times,
-            filepositions: filepositions
-        };
     }
 
     bindDataSource(loader) {
