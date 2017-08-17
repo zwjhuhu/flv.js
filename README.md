@@ -18,6 +18,7 @@ flv.js is written in [ECMAScript 6][], transpiled into ECMAScript 5 by [Babel Co
 
 ## Features
 - FLV container with H.264 + AAC / MP3 codec playback
+- MP4 container with H.264 + AAC codec playback (moov box must be at the beginning of file)
 - Multipart segmented video playback
 - HTTP FLV low latency live stream playback
 - FLV over WebSocket live stream playback
@@ -34,6 +35,10 @@ npm install --save flv.js
 npm install          # install dev-dependences
 npm install -g gulp  # install build tool
 gulp release         # packaged & minimized js will be emitted in dist folder
+```
+Or
+```bash
+rollup -c            # build es6 bundled version of flv.js
 ```
 
 [cnpm](https://github.com/cnpm/cnpm) mirror is recommended if you are in Mainland China.
