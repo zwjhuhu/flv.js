@@ -329,7 +329,7 @@ class FLVDemuxer {
             if (!this._liveTsOffsetSet && timestamp != 0) {
                 this._liveTsOffsetSet = true;
                 if (timestamp > 5e3) {
-                    this._liveTsOffset = timestamp;
+                    this._liveTsOffset = this.tsBase < 5e3 ? timestamp : 0;
                 }
             }
             let currentTime = Math.ceil((timestamp - this.tsBase - this._liveTsOffset || 0) / 1e3);
