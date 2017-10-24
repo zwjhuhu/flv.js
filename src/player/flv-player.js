@@ -220,7 +220,7 @@ class FlvPlayer {
             // lazyLoad check
             if (this._config.lazyLoad && !this._config.isLive) {
                 let currentTime = this._mediaElement.currentTime;
-                if (ms.info.endDts >= (currentTime + this._config.lazyLoadMaxDuration) * 1000) {
+                if (ms.info.endDts >= (currentTime + this._config.lazyLoadMaxDuration) * ms.info.timeScale) {
                     if (this._progressChecker == null) {
                         Log.v(this.TAG, 'Maximum buffering duration exceeded, suspend transmuxing task');
                         this._suspendTransmuxer();

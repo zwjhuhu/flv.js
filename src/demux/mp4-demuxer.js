@@ -649,15 +649,15 @@ class MP4Demuxer {
             sampleTsMap.video = [];
             for (let i = 0; i < stts.length; i++) {
                 for (let j = 0; j < stts[i].sampleCount; j++) {
-                    let time = sampleTs | 0;
+                    let time = (sampleTs / timeScale) | 0;
                     maxDuration = Math.max(time, maxDuration);
                     if (!bitrateMapTrack.video[time]) {
                         bitrateMapTrack.video[time] = 0;
                     }
                     bitrateMapTrack.video[time] += stsz[sampleNumber];
                     size += stsz[sampleNumber];
-                    sampleTsMap.video.push(sampleTs * 1e3 | 0);
-                    sampleTs += stts[i].sampleDuration / timeScale;
+                    sampleTsMap.video.push({ ts: sampleTs, duration: stts[i].sampleDuration });
+                    sampleTs += stts[i].sampleDuration;
                     sampleNumber++;
                 }
             }
@@ -689,19 +689,20 @@ class MP4Demuxer {
                         currentCtsLeft = currentCtsRule.sampleCount;
                     }
                     currentCtsLeft--;
-                    let ts = sampleTsMap.video[sampleNumber];
-                    let cts = (currentCtsRule.compositionOffset / timeScale * 1e3) | 0;
+                    let { ts, duration } = sampleTsMap.video[sampleNumber];
+                    let cts = currentCtsRule.compositionOffset;
                     let size = stsz[sampleNumber++];
                     let isKeyframe = stss.indexOf(sampleNumber) != -1;
                     currentChunk.samples.push({
                         ts,
+                        duration,
                         cts,
                         size,
                         isKeyframe
                     });
 
                     if (isKeyframe) {
-                        keyframesIndex.times.push(this._timestampBase + ts);
+                        keyframesIndex.times.push(this._timestampBase + ts / timeScale * 1e3);
                         keyframesIndex.filepositions.push(currentChunk.offset + sampleOffset);
                     }
                     sampleOffset += size;
@@ -728,8 +729,8 @@ class MP4Demuxer {
             meta.codec = mediaInfo.videoCodec;
             meta.codecHeight = sps.codec_size.height;
             meta.codecWidth = sps.codec_size.width;
-            meta.duration = this._duration;
-            meta.timescale = 1e3;
+            meta.duration = (this._duration / 1e3 * timeScale) | 0;
+            meta.timescale = timeScale;
             meta.frameRate = sps.frame_rate;
             meta.id = id++;
             meta.level = sps.level_string;
@@ -761,15 +762,15 @@ class MP4Demuxer {
             sampleTsMap.audio = [];
             for (let i = 0; i < stts.length; i++) {
                 for (let j = 0; j < stts[i].sampleCount; j++) {
-                    let time = sampleTs | 0;
+                    let time = (sampleTs / timeScale) | 0;
                     maxDuration = Math.max(time, maxDuration);
                     if (!bitrateMapTrack.audio[time]) {
                         bitrateMapTrack.audio[time] = 0;
                     }
                     bitrateMapTrack.audio[time] += stsz[sampleNumber];
                     size += stsz[sampleNumber];
-                    sampleTsMap.audio.push(sampleTs * 1e3 | 0);
-                    sampleTs += stts[i].sampleDuration / timeScale;
+                    sampleTsMap.audio.push({ ts: sampleTs, duration: stts[i].sampleDuration });
+                    sampleTs += stts[i].sampleDuration;
                     sampleNumber++;
                 }
             }
@@ -791,7 +792,8 @@ class MP4Demuxer {
                 };
                 for (let j = 0; j < currentChunkRule.samplesPerChunk; j++) {
                     currentChunk.samples.push({
-                        ts: sampleTsMap.audio[sampleNumber],
+                        ts: sampleTsMap.audio[sampleNumber].ts,
+                        duration: sampleTsMap.audio[sampleNumber].duration,
                         size: stsz[sampleNumber++]
                     });
                 }
@@ -806,10 +808,10 @@ class MP4Demuxer {
             meta.codec = mediaInfo.audioCodec;
             meta.originalCodec = meta.codec;
             meta.config = specDesc.data;
-            meta.duration = this._duration;
+            meta.duration = (this._duration / 1e3 * timeScale) | 0;
             meta.id = id++;
             meta.refSampleDuration = 1024 / meta.audioSampleRate * timeScale;
-            meta.timescale = 1000;
+            meta.timescale = timeScale;
             this._onTrackMetadata('audio', meta);
             this._audioInitialMetadataDispatched = true;
             this._audioMetadata = meta;
@@ -997,14 +999,14 @@ class MP4Demuxer {
                     if (offset + sampleSize > chunk.byteLength) {
                         break;
                     }
-                    this._parseAVCVideoData(chunk, offset, sampleSize, sample.ts, byteStart + offset, sample.isKeyframe, sample.cts);
+                    this._parseAVCVideoData(chunk, offset, sampleSize, sample.ts, byteStart + offset, sample.isKeyframe, sample.cts, sample.duration);
                 } else if (dataChunk.type == 'audio') {
                     sampleSize = sample.size;
                     if (offset + sampleSize > chunk.byteLength) {
                         break;
                     }
                     let track = this._audioTrack;
-                    let dts = this._timestampBase + sample.ts;
+                    let dts = this._timestampBase / 1e3 * this._audioMetadata.timescale + sample.ts;
                     let aacSample = { unit: v.subarray(0, sampleSize), dts: dts, pts: dts };
                     track.samples.push(aacSample);
                     track.length += aacSample.unit.length;
@@ -1038,7 +1040,7 @@ class MP4Demuxer {
         return offset;  // consumed bytes, just equals latest offset index
     }
 
-    _parseAVCVideoData(arrayBuffer, dataOffset, dataSize, tagTimestamp, tagPosition, frameType, cts) {
+    _parseAVCVideoData(arrayBuffer, dataOffset, dataSize, tagTimestamp, tagPosition, frameType, cts, duration) {
         let le = this._littleEndian;
         let v = new DataView(arrayBuffer, dataOffset, dataSize);
 
@@ -1046,7 +1048,7 @@ class MP4Demuxer {
 
         let offset = 0;
         const lengthSize = this._naluLengthSize;
-        let dts = this._timestampBase + tagTimestamp;
+        let dts = this._timestampBase / 1e3 * this._videoMetadata.timescale + tagTimestamp;
         let keyframe = (frameType === 1);  // from FLV Frame Type constants
 
         while (offset < dataSize) {
@@ -1083,6 +1085,7 @@ class MP4Demuxer {
             let avcSample = {
                 units: units,
                 length: length,
+                duration: duration,
                 isKeyframe: keyframe,
                 dts: dts,
                 cts: cts,
