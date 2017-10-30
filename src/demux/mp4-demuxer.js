@@ -26,10 +26,10 @@ function ReadBig16(array, index) {
         (array[index + 1]));
 }
 function ReadBig32(array, index) {
-    return ((array[index] << 24) |
-        (array[index + 1] << 16) |
-        (array[index + 2] << 8) |
-        (array[index + 3]));
+    return ReadBig16(array, index) * 65536 + ReadBig16(array, index + 2);
+}
+function ReadBig64(array, index) {
+    return ReadBig32(array, index) * 4294967296 + ReadBig32(array, index + 4);
 }
 
 function ReadString(uintarray, index, length) {
@@ -47,15 +47,22 @@ function ReadString(uintarray, index, length) {
 function boxInfo(uintarr, index) {
     let boxSize = ReadBig32(uintarr, index);
     let boxName = ReadString(uintarr, index + 4, 4);
+    let boxHeadSize = 8;
+    if (boxSize == 1) {
+        boxSize = ReadBig64(uintarr, index + 8);
+        boxHeadSize = 16;
+    }
     let fullyLoaded = uintarr.length >= (index + boxSize);
     if (boxSize == 0)
         return {
             size: 8,
+            headSize: boxHeadSize,
             name: '',
             fullyLoaded: true
         };
     return {
         size: boxSize,
+        headSize: boxHeadSize,
         name: boxName,
         fullyLoaded: fullyLoaded
     };
@@ -574,6 +581,18 @@ class MP4Demuxer {
                             parent[box.name] = sampleTable;
                             break;
                         }
+                        case 'co64': {
+                            body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
+                            let entryCount = ReadBig32(body, 0);
+                            let sampleTable = new Array(entryCount);
+                            let boxOffset = 4;
+                            for (let i = 0; i < entryCount; i++) {
+                                sampleTable[i] = ReadBig64(body, boxOffset);
+                                boxOffset += 8;
+                            }
+                            parent['stco'] = sampleTable;
+                            break;
+                        }
                         case 'hdlr': {
                             body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
                             let handler = ReadString(body, 4, 4);
@@ -625,8 +644,8 @@ class MP4Demuxer {
             duration: moovData.moov[0].mvhd.duration / moovData.moov[0].mvhd.timeScale * 1e3
         };
         mediaInfo.duration = this._duration;
-        mediaInfo.hasVideo = this._hasVideo = !!tracks.video;
-        mediaInfo.hasAudio = this._hasAudio = !!tracks.audio;
+        mediaInfo.hasVideo = this._hasVideo = tracks.video !== undefined;
+        mediaInfo.hasAudio = this._hasAudio = tracks.audio !== undefined;
         let bitrateMapTrack = {};
         let maxDuration = 0;
         let chunkMap = [];
@@ -1017,7 +1036,7 @@ class MP4Demuxer {
                 let box = boxInfo(v, 0);
                 if (box.name == 'mdat') {
                     this._mdatEnd = byteStart + offset + box.size - 8;
-                    offset += 8;
+                    offset += box.headSize;
                 } else {
                     if (box.fullyLoaded) {
                         //not mdat box, skip
