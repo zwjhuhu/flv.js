@@ -326,7 +326,7 @@ class FLVDemuxer {
             }
             this._totalBytes += dataSize;
 
-            if (!this._liveTsOffsetSet && timestamp != 0) {
+            if (this._config.isLive && !this._liveTsOffsetSet && timestamp != 0) {
                 this._liveTsOffsetSet = true;
                 if (timestamp > 5e3) {
                     this._liveTsOffset = this.tsBase < 5e3 ? timestamp : 0;
