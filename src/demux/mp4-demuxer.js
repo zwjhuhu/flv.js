@@ -863,7 +863,7 @@ class MP4Demuxer {
         this._mediaInfo = mediaInfo;
         if (mediaInfo.isComplete())
             this._onMediaInfo(mediaInfo);
-        Log.v(this.TAG, 'Parsed moov box, hasVideo: ' + mediaInfo.hasVideo + ' hasAudio: ' + mediaInfo.hasAudio);
+        Log.v(this.TAG, 'Parsed moov box, hasVideo: ' + mediaInfo.hasVideo + ' hasAudio: ' + mediaInfo.hasAudio + ', accurate duration: ' + mediaInfo.accurateDuration);
     }
 
     bindDataSource(loader) {
@@ -1015,7 +1015,12 @@ class MP4Demuxer {
                 }
 
                 if (!sample) {
-                    break;
+                    //extra unused data, drop it
+                    let chunkOffset = chunkMap.indexOf(dataChunk);
+                    let droppedBytes = chunkMap[chunkOffset + 1].offset - byteStart - offset;
+                    Log.w(this.TAG, `Found ${droppedBytes} bytes unused data in chunk #${chunkOffset} (type: ${dataChunk.type}), dropping. `);
+                    offset += droppedBytes;
+                    continue;
                 }
 
                 let sampleSize;
