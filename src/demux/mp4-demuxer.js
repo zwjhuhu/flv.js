@@ -1017,7 +1017,8 @@ class MP4Demuxer {
                 if (!sample) {
                     //extra unused data, drop it
                     let chunkOffset = chunkMap.indexOf(dataChunk);
-                    let droppedBytes = chunkMap[chunkOffset + 1].offset - byteStart - offset;
+                    let nextChunk = chunkMap[chunkOffset + 1];
+                    let droppedBytes = nextChunk != undefined ? nextChunk.offset : this._mdatEnd - byteStart - offset;
                     Log.w(this.TAG, `Found ${droppedBytes} bytes unused data in chunk #${chunkOffset} (type: ${dataChunk.type}), dropping. `);
                     offset += droppedBytes;
                     continue;
