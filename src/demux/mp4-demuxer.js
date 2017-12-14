@@ -685,6 +685,13 @@ class MP4Demuxer {
             accurateDuration.push(Math.ceil((lastSample.ts + lastSample.duration) / timeScale * 1e3));
             let ctts = tracks.video.mdia[0].minf[0].stbl[0].ctts;
             let stss = tracks.video.mdia[0].minf[0].stbl[0].stss;
+            // no ctts when decode and presentation orders are the same
+            if (ctts == undefined) {
+                ctts = [{
+                    sampleCount: stsz.length, 
+                    compositionOffset: 0
+                }];
+            }
             let currentChunkRule = stsc[0];
             let nextChunkRule = stsc[1];
             let currentCtsRule = ctts[0];
