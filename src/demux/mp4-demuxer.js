@@ -987,6 +987,8 @@ class MP4Demuxer {
             offset += moov.size;
         }
 
+        let chunkOffset = 1;
+
         while (offset < chunk.byteLength) {
             this._dispatch = true;
 
@@ -1002,10 +1004,10 @@ class MP4Demuxer {
                 //find the chunk
                 let sampleOffset = byteStart + offset;
                 let dataChunk = chunkMap[0];
-                for (let i = 1; i < chunkMap.length; i++) {
-                    dataChunk = chunkMap[i];
+                for (; chunkOffset < chunkMap.length; chunkOffset++) {
+                    dataChunk = chunkMap[chunkOffset];
                     if (sampleOffset < dataChunk.offset) {
-                        dataChunk = chunkMap[i - 1];
+                        dataChunk = chunkMap[chunkOffset - 1];
                         break;
                     }
                 }
@@ -1021,7 +1023,7 @@ class MP4Demuxer {
                     sampleOffset -= dataChunk.samples[i].size;
                 }
 
-                if (!sample) {
+                if (sample === undefined) {
                     //extra unused data, drop it
                     let chunkOffset = chunkMap.indexOf(dataChunk);
                     let nextChunk = chunkMap[chunkOffset + 1];
