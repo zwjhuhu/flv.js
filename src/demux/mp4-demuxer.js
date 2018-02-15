@@ -495,14 +495,14 @@ class MP4Demuxer {
                         case 'stts': {
                             body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
                             let entryCount = ReadBig32(body, 0);
-                            let sampleTable = new Array(entryCount);
+                            let sampleTable = [];
                             let boxOffset = 4;
                             for (let i = 0; i < entryCount; i++) {
                                 let sampleCount = ReadBig32(body, boxOffset);
                                 let sampleDuration = ReadBig32(body, boxOffset + 4);
-                                sampleTable[i] = {
+                                sampleTable.push({
                                     sampleCount, sampleDuration
-                                };
+                                });
                                 boxOffset += 8;
                             }
                             parent[box.name] = sampleTable;
@@ -511,14 +511,14 @@ class MP4Demuxer {
                         case 'ctts': {
                             body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
                             let entryCount = ReadBig32(body, 0);
-                            let sampleTable = new Array(entryCount);
+                            let sampleTable = [];
                             let boxOffset = 4;
                             for (let i = 0; i < entryCount; i++) {
                                 let sampleCount = ReadBig32(body, boxOffset);
                                 let compositionOffset = ReadBig32(body, boxOffset + 4);
-                                sampleTable[i] = {
+                                sampleTable.push({
                                     sampleCount, compositionOffset
-                                };
+                                });
                                 boxOffset += 8;
                             }
                             parent[box.name] = sampleTable;
@@ -527,10 +527,10 @@ class MP4Demuxer {
                         case 'stss': {
                             body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
                             let entryCount = ReadBig32(body, 0);
-                            let sampleTable = new Array(entryCount);
+                            let sampleTable = [];
                             let boxOffset = 4;
                             for (let i = 0; i < entryCount; i++) {
-                                sampleTable[i] = ReadBig32(body, boxOffset);
+                                sampleTable.push(ReadBig32(body, boxOffset));
                                 boxOffset += 4;
                             }
                             parent[box.name] = sampleTable;
@@ -539,15 +539,15 @@ class MP4Demuxer {
                         case 'stsc': {
                             body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
                             let entryCount = ReadBig32(body, 0);
-                            let sampleTable = new Array(entryCount);
+                            let sampleTable = [];
                             let boxOffset = 4;
                             for (let i = 0; i < entryCount; i++) {
                                 let firstChunk = ReadBig32(body, boxOffset);
                                 let samplesPerChunk = ReadBig32(body, boxOffset + 4);
                                 let sampleDescID = ReadBig32(body, boxOffset + 8);
-                                sampleTable[i] = {
+                                sampleTable.push({
                                     firstChunk, samplesPerChunk, sampleDescID
-                                };
+                                });
                                 boxOffset += 12;
                             }
                             parent[box.name] = sampleTable;
@@ -557,10 +557,10 @@ class MP4Demuxer {
                             body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
                             let sampleSize = ReadBig32(body, 0);
                             let entryCount = ReadBig32(body, 4);
-                            let sampleTable = new Array(entryCount);
+                            let sampleTable = [];
                             let boxOffset = 8;
                             for (let i = 0; i < entryCount; i++) {
-                                sampleTable[i] = ReadBig32(body, boxOffset);
+                                sampleTable.push(ReadBig32(body, boxOffset));
                                 boxOffset += 4;
                             }
                             parent[box.name] = {
@@ -572,10 +572,10 @@ class MP4Demuxer {
                         case 'stco': {
                             body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
                             let entryCount = ReadBig32(body, 0);
-                            let sampleTable = new Array(entryCount);
+                            let sampleTable = [];
                             let boxOffset = 4;
                             for (let i = 0; i < entryCount; i++) {
-                                sampleTable[i] = ReadBig32(body, boxOffset);
+                                sampleTable.push(ReadBig32(body, boxOffset));
                                 boxOffset += 4;
                             }
                             parent[box.name] = sampleTable;
@@ -584,10 +584,10 @@ class MP4Demuxer {
                         case 'co64': {
                             body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
                             let entryCount = ReadBig32(body, 0);
-                            let sampleTable = new Array(entryCount);
+                            let sampleTable = [];
                             let boxOffset = 4;
                             for (let i = 0; i < entryCount; i++) {
-                                sampleTable[i] = ReadBig64(body, boxOffset);
+                                sampleTable.push(ReadBig64(body, boxOffset));
                                 boxOffset += 8;
                             }
                             parent['stco'] = sampleTable;
@@ -648,7 +648,7 @@ class MP4Demuxer {
         mediaInfo.hasAudio = this._hasAudio = tracks.audio !== undefined;
         let bitrateMapTrack = {};
         let maxDuration = 0;
-        let chunkMap = [];
+        let chunkMap = {};
         let sampleTsMap = {};
         let codecs = [];
         let id = 1;
@@ -665,7 +665,7 @@ class MP4Demuxer {
             let sampleNumber = 0;
             let sampleTs = 0;
             let size = 0;
-            bitrateMapTrack.video = new Array(Math.ceil(tracks.video.mdia[0].mdhd.duration / timeScale));
+            bitrateMapTrack.video = new Uint32Array(Math.ceil(tracks.video.mdia[0].mdhd.duration / timeScale));
             sampleTsMap.video = [];
             for (let i = 0; i < stts.length; i++) {
                 for (let j = 0; j < stts[i].sampleCount; j++) {
@@ -701,6 +701,7 @@ class MP4Demuxer {
             let chunkNumber = 1;
             sampleNumber = 0;
             let keyframesIndex = { times: [], filepositions: [] };
+            chunkMap.video = [];
             for (let i = 0; i < stco.length; i++) {
                 if (nextChunkRule != undefined && chunkNumber >= nextChunkRule.firstChunk) {
                     sampleToChunkOffset++;
@@ -736,7 +737,7 @@ class MP4Demuxer {
                     }
                     sampleOffset += size;
                 }
-                chunkMap.push(currentChunk);
+                chunkMap.video.push(currentChunk);
                 chunkNumber++;
             }
             mediaInfo.videoDataRate = size / mediaInfo.metadata.duration * 8;
@@ -810,6 +811,7 @@ class MP4Demuxer {
             let sampleToChunkOffset = 0;
             let chunkNumber = 1;
             sampleNumber = 0;
+            chunkMap.audio = [];
             for (let i = 0; i < stco.length; i++) {
                 if (nextChunkRule != undefined && chunkNumber >= nextChunkRule.firstChunk) {
                     sampleToChunkOffset++;
@@ -828,7 +830,7 @@ class MP4Demuxer {
                         size: stsz[sampleNumber++]
                     });
                 }
-                chunkMap.push(currentChunk);
+                chunkMap.audio.push(currentChunk);
                 chunkNumber++;
             }
             mediaInfo.audioDataRate = size / mediaInfo.metadata.duration * 8;
@@ -863,10 +865,31 @@ class MP4Demuxer {
             bitrateMap[i] = size * 8 / 1e3;
         }
         mediaInfo.bitrateMap = bitrateMap;
-        chunkMap.sort(function (a, b) {
-            return a.offset - b.offset;
-        });
-        this._chunkMap = chunkMap;
+        let mergedChunkMap;
+        if (!mediaInfo.hasAudio) {
+            mergedChunkMap = chunkMap.video;
+        } else if (!mediaInfo.hasVideo) {
+            mergedChunkMap = chunkMap.audio;
+        } else {
+            mergedChunkMap = [];
+            let audioIndex = 0, videoIndex = 0;
+            while (videoIndex < chunkMap.video.length && audioIndex < chunkMap.audio.length) {
+                if (audioIndex == chunkMap.audio.length) {
+                    mergedChunkMap.concat(chunkMap.video.splice(videoIndex));
+                } else if (audioIndex == chunkMap.audio.length) {
+                    mergedChunkMap.concat(chunkMap.audio.splice(audioIndex));
+                } else {
+                    if (chunkMap.video[videoIndex].offset < chunkMap.audio[audioIndex].offset) {
+                        mergedChunkMap.push(chunkMap.video[videoIndex]);
+                        videoIndex++;
+                    } else {
+                        mergedChunkMap.push(chunkMap.audio[audioIndex]);
+                        audioIndex++;
+                    }
+                }
+            }
+        }
+        this._chunkMap = mergedChunkMap;
         this._mediaInfo = mediaInfo;
         if (mediaInfo.isComplete())
             this._onMediaInfo(mediaInfo);
