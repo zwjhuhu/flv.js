@@ -368,6 +368,9 @@ class FLVDemuxer {
             }
         }
 
+        if (this._mediaInfo.isComplete())
+            this._onMediaInfo(this._mediaInfo);
+
         return offset;  // consumed bytes, just equals latest offset index
     }
     
