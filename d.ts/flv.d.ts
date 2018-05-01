@@ -54,7 +54,13 @@ declare namespace FlvJs {
         lazyLoadRecoverDuration?: number,
         deferLoadAfterSourceOpen?: boolean,
 
+        autoCleanupSourceBuffer?: boolean,
+        autoCleanupMaxBackwardDuration?: number,
+        autoCleanupMinBackwardDuration?: number,
+
         statisticsInfoReportInterval?: number,
+
+        fixAudioTimestampGap?: boolean,
 
         accurateSeek?: boolean,
         seekType?: string,  // [range, param, custom]
@@ -108,16 +114,18 @@ declare namespace FlvJs {
     }
 
     interface LoggingControl {
-        forceGlobalTag: boolean,
-        globalTag: string,
-        enableAll: boolean,
-        enableDebug: boolean,
-        enableVerbose: boolean,
-        enableInfo: boolean,
-        enableWarn: boolean,
-        enableError: boolean,
-        getConfig: Object,
-        applyConfig: Object,
+        forceGlobalTag: boolean;
+        globalTag: string;
+        enableAll: boolean;
+        enableDebug: boolean;
+        enableVerbose: boolean;
+        enableInfo: boolean;
+        enableWarn: boolean;
+        enableError: boolean;
+        getConfig(): Object;
+        applyConfig(config: Object): void;
+        addLogListener(listener: Function): void;
+        removeLogListener(listener: Function): void;
     }
 
     interface Events {
