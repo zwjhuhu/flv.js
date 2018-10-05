@@ -805,7 +805,9 @@ class MP4Demuxer {
                 }
             }
             let lastSample = sampleTsMap.audio[sampleTsMap.audio.length - 1];
-            accurateDuration.push(Math.ceil((lastSample.ts + lastSample.duration) / timeScale * 1e3));
+            //accurateDuration.push(Math.ceil((lastSample.ts + lastSample.duration) / timeScale * 1e3));
+            // always set audio duration as accurate duration, to avoid desync, as video duration is *much* easier (and defaulted as ON) to modify
+            accurateDuration = [Math.ceil((lastSample.ts + lastSample.duration) / timeScale * 1e3)];
             let currentChunkRule = stsc[0];
             let nextChunkRule = stsc[1];
             let sampleToChunkOffset = 0;
@@ -1010,7 +1012,7 @@ class MP4Demuxer {
             offset += moov.size;
         }
 
-        let chunkOffset = 1;
+        let chunkOffset;
 
         while (offset < chunk.byteLength) {
             this._dispatch = true;
@@ -1027,11 +1029,31 @@ class MP4Demuxer {
                 //find the chunk
                 let sampleOffset = byteStart + offset;
                 let dataChunk = chunkMap[0];
-                for (; chunkOffset < chunkMap.length; chunkOffset++) {
+                if (chunkOffset === undefined) {
+                    // bi search first chunk
+                    chunkOffset = (function () {
+                        let bottom = 0, top = chunkMap.length - 1;
+                        while (bottom <= top) {
+                            let mid = Math.floor((bottom + top) / 2);
+                            let result = (function (mid) {
+                                if (sampleOffset < chunkMap[mid].offset) return -1;
+                                if (sampleOffset >= chunkMap[mid + 1].offset) return 1;
+                                return 0;
+                            })(mid);
+                            if (result == 0) return mid;
+                            if (result < 0) top = mid - 1;
+                            else bottom = mid + 1;
+                        }
+                    })();
                     dataChunk = chunkMap[chunkOffset];
-                    if (sampleOffset < dataChunk.offset) {
-                        dataChunk = chunkMap[chunkOffset - 1];
-                        break;
+                } else {
+                    // sequal search other chunk
+                    for (; chunkOffset < chunkMap.length; chunkOffset++) {
+                        dataChunk = chunkMap[chunkOffset];
+                        if (sampleOffset < dataChunk.offset) {
+                            dataChunk = chunkMap[chunkOffset - 1];
+                            break;
+                        }
                     }
                 }
 
