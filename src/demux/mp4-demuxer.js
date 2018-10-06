@@ -527,10 +527,10 @@ class MP4Demuxer {
                         case 'stss': {
                             body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
                             let entryCount = ReadBig32(body, 0);
-                            let sampleTable = [];
+                            let sampleTable = new Uint32Array(entryCount);
                             let boxOffset = 4;
                             for (let i = 0; i < entryCount; i++) {
-                                sampleTable.push(ReadBig32(body, boxOffset));
+                                sampleTable[i] = ReadBig32(body, boxOffset);
                                 boxOffset += 4;
                             }
                             parent[box.name] = sampleTable;
@@ -557,10 +557,10 @@ class MP4Demuxer {
                             body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
                             let sampleSize = ReadBig32(body, 0);
                             let entryCount = ReadBig32(body, 4);
-                            let sampleTable = [];
+                            let sampleTable = new Uint32Array(entryCount);
                             let boxOffset = 8;
                             for (let i = 0; i < entryCount; i++) {
-                                sampleTable.push(ReadBig32(body, boxOffset));
+                                sampleTable[i] = ReadBig32(body, boxOffset);
                                 boxOffset += 4;
                             }
                             parent[box.name] = {
@@ -572,10 +572,10 @@ class MP4Demuxer {
                         case 'stco': {
                             body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
                             let entryCount = ReadBig32(body, 0);
-                            let sampleTable = [];
+                            let sampleTable = new Uint32Array(entryCount);
                             let boxOffset = 4;
                             for (let i = 0; i < entryCount; i++) {
-                                sampleTable.push(ReadBig32(body, boxOffset));
+                                sampleTable[i] = ReadBig32(body, boxOffset);
                                 boxOffset += 4;
                             }
                             parent[box.name] = sampleTable;
