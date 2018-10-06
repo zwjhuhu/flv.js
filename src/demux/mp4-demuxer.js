@@ -1092,9 +1092,10 @@ class MP4Demuxer {
                     }
                     let track = this._audioTrack;
                     let dts = this._timestampBase / 1e3 * this._audioMetadata.timescale + sample.ts;
-                    let aacSample = { unit: v.subarray(0, sampleSize), dts: dts, pts: dts };
+                    let accData = v.subarray(0, sampleSize);
+                    let aacSample = { unit: accData, length: accData.byteLength, dts: dts, pts: dts };
                     track.samples.push(aacSample);
-                    track.length += aacSample.unit.length;
+                    track.length += aacSample.length;
                 }
 
                 offset += sampleSize;
