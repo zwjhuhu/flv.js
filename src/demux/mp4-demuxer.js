@@ -867,30 +867,14 @@ class MP4Demuxer {
             bitrateMap[i] = size * 8 / 1e3;
         }
         mediaInfo.bitrateMap = bitrateMap;
-        let mergedChunkMap;
-        if (!mediaInfo.hasAudio) {
-            mergedChunkMap = chunkMap.video;
-        } else if (!mediaInfo.hasVideo) {
-            mergedChunkMap = chunkMap.audio;
-        } else {
-            mergedChunkMap = [];
-            let audioIndex = 0, videoIndex = 0;
-            while (videoIndex < chunkMap.video.length && audioIndex < chunkMap.audio.length) {
-                if (audioIndex == chunkMap.audio.length) {
-                    mergedChunkMap.concat(chunkMap.video.splice(videoIndex));
-                } else if (audioIndex == chunkMap.audio.length) {
-                    mergedChunkMap.concat(chunkMap.audio.splice(audioIndex));
-                } else {
-                    if (chunkMap.video[videoIndex].offset < chunkMap.audio[audioIndex].offset) {
-                        mergedChunkMap.push(chunkMap.video[videoIndex]);
-                        videoIndex++;
-                    } else {
-                        mergedChunkMap.push(chunkMap.audio[audioIndex]);
-                        audioIndex++;
-                    }
-                }
-            }
+        let mergedChunkMap = [];
+        if (mediaInfo.hasVideo) {
+            mergedChunkMap = mergedChunkMap.concat(chunkMap.video);
         }
+        if (mediaInfo.hasAudio) {
+            mergedChunkMap = mergedChunkMap.concat(chunkMap.audio);
+        }
+        mergedChunkMap = mergedChunkMap.sort(function (a, b) { return a.offset - b.offset; });
         this._chunkMap = mergedChunkMap;
         this._mediaInfo = mediaInfo;
         if (mediaInfo.isComplete())
