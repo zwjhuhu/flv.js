@@ -527,10 +527,10 @@ class MP4Demuxer {
                         case 'stss': {
                             body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
                             let entryCount = ReadBig32(body, 0);
-                            let sampleTable = [];
+                            let sampleTable = new Uint32Array(entryCount);
                             let boxOffset = 4;
                             for (let i = 0; i < entryCount; i++) {
-                                sampleTable.push(ReadBig32(body, boxOffset));
+                                sampleTable[i] = ReadBig32(body, boxOffset);
                                 boxOffset += 4;
                             }
                             parent[box.name] = sampleTable;
@@ -557,10 +557,10 @@ class MP4Demuxer {
                             body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
                             let sampleSize = ReadBig32(body, 0);
                             let entryCount = ReadBig32(body, 4);
-                            let sampleTable = [];
+                            let sampleTable = new Uint32Array(entryCount);
                             let boxOffset = 8;
                             for (let i = 0; i < entryCount; i++) {
-                                sampleTable.push(ReadBig32(body, boxOffset));
+                                sampleTable[i] = ReadBig32(body, boxOffset);
                                 boxOffset += 4;
                             }
                             parent[box.name] = {
@@ -572,10 +572,10 @@ class MP4Demuxer {
                         case 'stco': {
                             body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
                             let entryCount = ReadBig32(body, 0);
-                            let sampleTable = [];
+                            let sampleTable = new Uint32Array(entryCount);
                             let boxOffset = 4;
                             for (let i = 0; i < entryCount; i++) {
-                                sampleTable.push(ReadBig32(body, boxOffset));
+                                sampleTable[i] = ReadBig32(body, boxOffset);
                                 boxOffset += 4;
                             }
                             parent[box.name] = sampleTable;
@@ -867,30 +867,14 @@ class MP4Demuxer {
             bitrateMap[i] = size * 8 / 1e3;
         }
         mediaInfo.bitrateMap = bitrateMap;
-        let mergedChunkMap;
-        if (!mediaInfo.hasAudio) {
-            mergedChunkMap = chunkMap.video;
-        } else if (!mediaInfo.hasVideo) {
-            mergedChunkMap = chunkMap.audio;
-        } else {
-            mergedChunkMap = [];
-            let audioIndex = 0, videoIndex = 0;
-            while (videoIndex < chunkMap.video.length && audioIndex < chunkMap.audio.length) {
-                if (audioIndex == chunkMap.audio.length) {
-                    mergedChunkMap.concat(chunkMap.video.splice(videoIndex));
-                } else if (audioIndex == chunkMap.audio.length) {
-                    mergedChunkMap.concat(chunkMap.audio.splice(audioIndex));
-                } else {
-                    if (chunkMap.video[videoIndex].offset < chunkMap.audio[audioIndex].offset) {
-                        mergedChunkMap.push(chunkMap.video[videoIndex]);
-                        videoIndex++;
-                    } else {
-                        mergedChunkMap.push(chunkMap.audio[audioIndex]);
-                        audioIndex++;
-                    }
-                }
-            }
+        let mergedChunkMap = [];
+        if (mediaInfo.hasVideo) {
+            mergedChunkMap = mergedChunkMap.concat(chunkMap.video);
         }
+        if (mediaInfo.hasAudio) {
+            mergedChunkMap = mergedChunkMap.concat(chunkMap.audio);
+        }
+        mergedChunkMap = mergedChunkMap.sort(function (a, b) { return a.offset - b.offset; });
         this._chunkMap = mergedChunkMap;
         this._mediaInfo = mediaInfo;
         if (mediaInfo.isComplete())
