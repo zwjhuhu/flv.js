@@ -1021,7 +1021,7 @@ class MP4Demuxer {
                             let mid = Math.floor((bottom + top) / 2);
                             let result = (function (mid) {
                                 if (sampleOffset < chunkMap[mid].offset) return -1;
-                                if (sampleOffset >= chunkMap[mid + 1].offset) return 1;
+                                if (chunkMap[mid + 1] && sampleOffset >= chunkMap[mid + 1].offset) return 1;
                                 return 0;
                             })(mid);
                             if (result == 0) return mid;
