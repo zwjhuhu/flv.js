@@ -1012,7 +1012,7 @@ class MP4Demuxer {
             if (this._mdatEnd > byteStart + offset) {
                 //find the chunk
                 let sampleOffset = byteStart + offset;
-                let dataChunk = chunkMap[0];
+                let dataChunk = null;
                 if (chunkOffset === undefined) {
                     // bi search first chunk
                     chunkOffset = (function () {
@@ -1039,6 +1039,9 @@ class MP4Demuxer {
                             break;
                         }
                     }
+                    if (!dataChunk) {
+                        dataChunk = chunkMap[chunkMap.length - 1];
+                    }
                 }
 
                 //find out which sample
@@ -1056,7 +1059,7 @@ class MP4Demuxer {
                     //extra unused data, drop it
                     let chunkOffset = chunkMap.indexOf(dataChunk);
                     let nextChunk = chunkMap[chunkOffset + 1];
-                    let droppedBytes = nextChunk != undefined ? nextChunk.offset : this._mdatEnd - byteStart - offset;
+                    let droppedBytes = (nextChunk != undefined ? nextChunk.offset : this._mdatEnd) - byteStart - offset;
                     Log.w(this.TAG, `Found ${droppedBytes} bytes unused data in chunk #${chunkOffset} (type: ${dataChunk.type}), dropping. `);
                     offset += droppedBytes;
                     continue;
