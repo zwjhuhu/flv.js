@@ -176,20 +176,10 @@ class MP4Demuxer {
             fps_den: 1000
         };
 
-        this._flvSoundRateTable = [5500, 11025, 22050, 44100, 48000];
-
         this._mpegSamplingRates = [
             96000, 88200, 64000, 48000, 44100, 32000,
             24000, 22050, 16000, 12000, 11025, 8000, 7350
         ];
-
-        this._mpegAudioV10SampleRateTable = [44100, 48000, 32000, 0];
-        this._mpegAudioV20SampleRateTable = [22050, 24000, 16000, 0];
-        this._mpegAudioV25SampleRateTable = [11025, 12000, 8000, 0];
-
-        this._mpegAudioL1BitRateTable = [0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, -1];
-        this._mpegAudioL2BitRateTable = [0, 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, -1];
-        this._mpegAudioL3BitRateTable = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, -1];
 
         this._videoTrack = { type: 'video', id: 1, sequenceNumber: 0, samples: [], length: 0 };
         this._audioTrack = { type: 'audio', id: 2, sequenceNumber: 0, samples: [], length: 0 };
@@ -584,10 +574,10 @@ class MP4Demuxer {
                         case 'co64': {
                             body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
                             let entryCount = ReadBig32(body, 0);
-                            let sampleTable = [];
+                            let sampleTable = new Float64Array(entryCount);
                             let boxOffset = 4;
                             for (let i = 0; i < entryCount; i++) {
-                                sampleTable.push(ReadBig64(body, boxOffset));
+                                sampleTable[i] = ReadBig64(body, boxOffset);
                                 boxOffset += 8;
                             }
                             parent['stco'] = sampleTable;
