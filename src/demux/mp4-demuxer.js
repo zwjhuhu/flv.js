@@ -1012,7 +1012,7 @@ class MP4Demuxer {
             if (this._mdatEnd > byteStart + offset) {
                 //find the chunk
                 let sampleOffset = byteStart + offset;
-                let dataChunk = chunkMap[0];
+                let dataChunk = null;
                 if (chunkOffset === undefined) {
                     // bi search first chunk
                     chunkOffset = (function () {
@@ -1021,7 +1021,7 @@ class MP4Demuxer {
                             let mid = Math.floor((bottom + top) / 2);
                             let result = (function (mid) {
                                 if (sampleOffset < chunkMap[mid].offset) return -1;
-                                if (sampleOffset >= chunkMap[mid + 1].offset) return 1;
+                                if (chunkMap[mid + 1] && sampleOffset >= chunkMap[mid + 1].offset) return 1;
                                 return 0;
                             })(mid);
                             if (result == 0) return mid;
@@ -1038,6 +1038,9 @@ class MP4Demuxer {
                             dataChunk = chunkMap[chunkOffset - 1];
                             break;
                         }
+                    }
+                    if (!dataChunk) {
+                        dataChunk = chunkMap[chunkMap.length - 1];
                     }
                 }
 
@@ -1056,7 +1059,7 @@ class MP4Demuxer {
                     //extra unused data, drop it
                     let chunkOffset = chunkMap.indexOf(dataChunk);
                     let nextChunk = chunkMap[chunkOffset + 1];
-                    let droppedBytes = nextChunk != undefined ? nextChunk.offset : this._mdatEnd - byteStart - offset;
+                    let droppedBytes = (nextChunk != undefined ? nextChunk.offset : this._mdatEnd) - byteStart - offset;
                     Log.w(this.TAG, `Found ${droppedBytes} bytes unused data in chunk #${chunkOffset} (type: ${dataChunk.type}), dropping. `);
                     offset += droppedBytes;
                     continue;
@@ -1076,9 +1079,10 @@ class MP4Demuxer {
                     }
                     let track = this._audioTrack;
                     let dts = this._timestampBase / 1e3 * this._audioMetadata.timescale + sample.ts;
-                    let aacSample = { unit: v.subarray(0, sampleSize), dts: dts, pts: dts };
+                    let accData = v.subarray(0, sampleSize);
+                    let aacSample = { unit: accData, length: accData.byteLength, dts: dts, pts: dts };
                     track.samples.push(aacSample);
-                    track.length += aacSample.unit.length;
+                    track.length += aacSample.length;
                 }
 
                 offset += sampleSize;
