@@ -94,6 +94,13 @@ class FetchStreamLoader extends BaseLoader {
             referrerPolicy: 'no-referrer-when-downgrade'
         };
 
+        // add additional headers
+        if (typeof this._config.headers === 'object') {
+            for (let key in this._config.headers) {
+                headers.append(key, this._config.headers[key]);
+            }
+        }
+
         // cors is enabled by default
         if (dataSource.cors === false) {
             // no-cors means 'disregard cors policy', which can only be used in ServiceWorker
@@ -196,7 +203,7 @@ class FetchStreamLoader extends BaseLoader {
                     this._onDataArrival(chunk, byteStart, this._receivedLength);
                 }
 
-                return this._pump(reader);
+                this._pump(reader);
             }
         }).catch((e) => {
             if (e.code === 11 && Browser.msedge) {  // InvalidStateError on Microsoft Edge

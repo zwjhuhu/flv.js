@@ -16,6 +16,9 @@ flv.js is written in [ECMAScript 6][], transpiled into ECMAScript 5 by [Babel Co
 [Babel Compiler]: https://babeljs.io/
 [Browserify]: http://browserify.org/
 
+## Demo
+[http://bilibili.github.io/flv.js/demo/](http://bilibili.github.io/flv.js/demo/)
+
 ## Features
 - FLV container with H.264 + AAC / MP3 codec playback
 - MP4 container with H.264 + AAC codec playback (moov box must be at the beginning of file)
@@ -78,6 +81,13 @@ See [livestream.md](docs/livestream.md)
 
 ## API and Configuration
 See [api.md](docs/api.md)
+
+## Debug
+```bash
+npm install          # install dev-dependences
+npm install -g gulp  # install build tool
+npm run dev          # with incremental compile and auto reload
+```
 
 ## Design
 See [design.md](docs/design.md)

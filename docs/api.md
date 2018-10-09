@@ -88,6 +88,8 @@ In multipart mode, `duration` `filesize` `url` field in `MediaDataSource` struct
 | `customSeekHandler?`             | `object`  | `undefined`                  | Indicates a custom seek handler          |
 | `reuseRedirectedURL?`            | `boolean` | `false`                      | Reuse 301/302 redirected url for subsequence request like seek, reconnect, etc. |
 | `referrerPolicy?`                | `string`  | `no-referrer-when-downgrade` | Indicates the [Referrer Policy][] when using FetchStreamLoader |
+| `headers?`                       | `object`  | `undefined`                  | Indicates additional headers that will be added to request |
+
 
 
 [Referrer Policy]: https://w3c.github.io/webappsec-referrer-policy/#referrer-policy
@@ -145,7 +147,7 @@ interface Player {
     detachMediaElement(): void;
     load(): void;
     unload(): void;
-    play(): void;
+    play(): Promise<void>;
     pause(): void;
     type: string;
     buffered: TimeRanges;
@@ -157,9 +159,6 @@ interface Player {
     statisticsInfo: Object;
 }
 ```
-
-
-
 
 ### flvjs.LoggingControl
 
@@ -181,3 +180,43 @@ interface LoggingControl {
     removeLogListener(listener: Function): void;
 }
 ```
+
+### flvjs.Events
+
+A series of constants that can be used with `Player.on()` / `Player.off()`. They require the prefix `flvjs.Events`.
+
+| Event               | Description                              |
+| ------------------- | ---------------------------------------- |
+| ERROR               | An error occurred by any cause during the playback |
+| LOADING_COMPLETE    | The input MediaDataSource has been completely buffered to end |
+| RECOVERED_EARLY_EOF | An unexpected network EOF occurred during buffering but automatically recovered |
+| MEDIA_INFO          | Provides technical information of the media like video/audio codec, bitrate, etc. |
+| METADATA_ARRIVED    | Provides metadata which FLV file(stream) can contain with an "onMetaData" marker.  |
+| SCRIPTDATA_ARRIVED  | Provides scriptdata (OnCuePoint / OnTextData) which FLV file(stream) can contain. |
+| STATISTICS_INFO     | Provides playback statistics information like dropped frames, current speed, etc. |
+
+### flvjs.ErrorTypes
+
+The possible errors that can come up during playback. They require the prefix `flvjs.ErrorTypes`.
+
+| Error         | Description                              |
+| ------------- | ---------------------------------------- |
+| NETWORK_ERROR | Errors related to the network            |
+| MEDIA_ERROR   | Errors related to the media (format error, decode issue, etc) |
+| OTHER_ERROR   | Any other unspecified error              |
+
+
+### flvjs.ErrorDetails
+
+Provide more verbose explanation for Network and Media errors. They require the prefix `flvjs.ErrorDetails`.
+
+| Error                           | Description                              |
+| ------------------------------- | ---------------------------------------- |
+| NETWORK_EXCEPTION               | Related to any other issues with the network; contains a `message` |
+| NETWORK_STATUS_CODE_INVALID     | Related to an invalid HTTP status code, such as 403, 404, etc. |
+| NETWORK_TIMEOUT                 | Related to timeout request issues        |
+| NETWORK_UNRECOVERABLE_EARLY_EOF | Related to unexpected network EOF which cannot be recovered |
+| MEDIA_MSE_ERROR                 | Related to MediaSource's error such as decode issue |
+| MEDIA_FORMAT_ERROR              | Related to any invalid parameters in the media stream |
+| MEDIA_FORMAT_UNSUPPORTED        | The input MediaDataSource format is not supported by flv.js |
+| MEDIA_CODEC_UNSUPPORTED         | The media stream contains video/audio codec which is not supported |
