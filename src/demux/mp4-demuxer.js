@@ -752,6 +752,12 @@ class MP4Demuxer {
             mediaInfo.hasKeyframesIndex = true;
             mediaInfo.keyframesIndex = keyframesIndex;
 
+            this._naluLengthSize = tracks.video.mdia[0].minf[0].stbl[0].stsd[0].avc1.extensions.avcC.lengthSizeMinusOne + 1;
+            if (this._naluLengthSize !== 3 && this._naluLengthSize !== 4) {
+                this._onError(DemuxErrors.FORMAT_ERROR, `Mp4: Strange NaluLengthSizeMinusOne: ${this._naluLengthSize - 1}`);
+                return;
+            }
+
             let meta = {};
             meta.avcc = tracks.video.mdia[0].minf[0].stbl[0].stsd[0].avc1.extensions.avcC.data;
             meta.bitDepth = sps.bit_depth;
