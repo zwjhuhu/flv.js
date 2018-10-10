@@ -1050,9 +1050,13 @@ class MP4Demuxer {
                     let chunkOffset = chunkMap.indexOf(dataChunk);
                     let nextChunk = chunkMap[chunkOffset + 1];
                     let droppedBytes = (nextChunk != undefined ? nextChunk.offset : this._mdatEnd) - byteStart - offset;
-                    Log.w(this.TAG, `Found ${droppedBytes} bytes unused data in chunk #${chunkOffset} (type: ${dataChunk.type}), dropping. `);
-                    offset += droppedBytes;
-                    continue;
+                    if (offset + droppedBytes <= chunk.byteLength) {
+                        Log.w(this.TAG, `Found ${droppedBytes} bytes unused data in chunk #${chunkOffset} (type: ${dataChunk.type}), dropping. `);
+                        offset += droppedBytes;
+                        continue;
+                    } else {
+                        break; //data not enough wait next time
+                    }
                 }
 
                 let sampleSize;
