@@ -1056,7 +1056,7 @@ class MP4Demuxer {
                     else bottom = mid + 1;
                 }
                 return -1;
-            })(0, chunkMap.length);
+            })(bottom, top);
 
             dataChunk = chunkMap[chunkOffset]; 
             
