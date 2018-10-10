@@ -1069,7 +1069,7 @@ class MP4Demuxer {
                 sampleOffset -= dataChunk.samples[sampleIndex].size;
                 sampleIndex ++;
             }
-            if (sampleOffset < 0 && sampleIndex == dataChunk.samples.length) {
+            if (sampleOffset < 0 && sampleIndex < dataChunk.samples.length) {
                 // sampleOffset is not a sample's start position maybe a error but for now try to skip to next sample  
                 let skipBytes = -sampleOffset;
                 
