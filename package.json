@@ -19,7 +19,8 @@
   "scripts": {
     "dev": "gulp watch",
     "build": "gulp release",
-    "dtslint": "dtslint types"
+	"dtslint": "dtslint types",
+    "serve": "http-server -p 8000 ."
   },
   "dependencies": {
     "es6-promise": "^4.1.0",
@@ -33,7 +34,6 @@
     "browserify-derequire": "^0.9.4",
     "browserify-versionify": "^1.0.6",
     "del": "^2.2.0",
-    "opn": "^5.1.0",
     "gulp": "^3.9.1",
     "gulp-cli": "^1.2.2",
     "gulp-eslint": "^3.0.1",
@@ -41,6 +41,7 @@
     "gulp-rename": "^1.2.2",
     "gulp-sourcemaps": "^2.4.1",
     "gulp-uglify": "^2.1.1",
+    "http-server": "^0.9.0",
     "rollup": "^0.47.6",
     "rollup-plugin-node-builtins": "^2.1.2",
     "rollup-plugin-node-resolve": "^3.0.0",
