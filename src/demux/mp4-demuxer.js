@@ -737,7 +737,12 @@ class MP4Demuxer {
                     });
 
                     if (isKeyframe) {
-                        keyframesIndex.times.push(this._timestampBase + ts / timeScale * 1e3);
+                        // when seek use keyframes player's currentTime may not exactly equal to keyframe sample's pts
+                        // cause player.currentTime < player.buffered.start(0) playing will stuck until seek to buffered position manually
+                        // so add some delay to skip it,may seek to some position after this keyframe but it could continue playing
+                        let decodeDelta = 10 * duration;
+                        let milliseconds = this._timestampBase + (ts + cts + decodeDelta) / timeScale * 1e3;
+                        keyframesIndex.times.push(milliseconds);
                         keyframesIndex.filepositions.push(currentChunk.offset + sampleOffset);
                     }
                     sampleOffset += size;
