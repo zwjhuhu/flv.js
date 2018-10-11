@@ -756,6 +756,7 @@ class MP4Demuxer {
             mediaInfo.sarDen = sps.sar_ratio.height;
             mediaInfo.hasKeyframesIndex = true;
             mediaInfo.keyframesIndex = keyframesIndex;
+            mediaInfo.refFrames = sps.ref_frames;
 
             this._naluLengthSize = tracks.video.mdia[0].minf[0].stbl[0].stsd[0].avc1.extensions.avcC.lengthSizeMinusOne + 1;
             if (this._naluLengthSize !== 3 && this._naluLengthSize !== 4) {
