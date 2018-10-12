@@ -532,7 +532,7 @@ class MP4Demuxer {
                         case 'stss': {
                             body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
                             let entryCount = ReadBig32(body, 0);
-                            let sampleTable = new Uint32Array(entryCount);
+                            let sampleTable = [];
                             let boxOffset = 4;
                             for (let i = 0; i < entryCount; i++) {
                                 sampleTable[i] = ReadBig32(body, boxOffset);
@@ -562,7 +562,7 @@ class MP4Demuxer {
                             body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
                             let sampleSize = ReadBig32(body, 0);
                             let entryCount = ReadBig32(body, 4);
-                            let sampleTable = new Uint32Array(entryCount);
+                            let sampleTable = [];
                             let boxOffset = 8;
                             for (let i = 0; i < entryCount; i++) {
                                 sampleTable[i] = ReadBig32(body, boxOffset);
@@ -577,7 +577,7 @@ class MP4Demuxer {
                         case 'stco': {
                             body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
                             let entryCount = ReadBig32(body, 0);
-                            let sampleTable = new Uint32Array(entryCount);
+                            let sampleTable = [];
                             let boxOffset = 4;
                             for (let i = 0; i < entryCount; i++) {
                                 sampleTable[i] = ReadBig32(body, boxOffset);
@@ -727,6 +727,7 @@ class MP4Demuxer {
                     let { ts, duration } = sampleTsMap.video[sampleNumber];
                     let cts = currentCtsRule.compositionOffset;
                     let size = stsz[sampleNumber++];
+
                     let isKeyframe = stss.indexOf(sampleNumber) != -1;
                     currentChunk.samples.push({
                         ts,
