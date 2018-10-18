@@ -28,6 +28,9 @@ import RangeSeekHandler from './range-seek-handler.js';
 import ParamSeekHandler from './param-seek-handler.js';
 import {RuntimeException, IllegalStateException, InvalidArgumentException} from '../utils/exception.js';
 
+// add TMRangeLoader
+import TMRangeLoader from './tm-range-loader.js';
+
 /**
  * DataSource: {
  *     url: string,
@@ -238,7 +241,7 @@ class IOController {
 
     _selectLoader() {
         if (this._config.customLoader != null) {
-            this._loaderClass = this._config.customLoader;
+            this._loaderClass = TMRangeLoader;
         } else if (this._isWebSocketURL) {
             this._loaderClass = WebSocketLoader;
         } else if (FetchStreamLoader.isSupported()) {
