@@ -659,7 +659,7 @@ class MP4Demuxer {
             sampleTsMap.video = [];
             for (let i = 0; i < stts.length; i++) {
                 for (let j = 0; j < stts[i].sampleCount; j++) {
-                    let time = (sampleTs / timeScale) | 0;
+                    let time = Math.floor(sampleTs / timeScale);
                     maxDuration = Math.max(time, maxDuration);
                     if (!bitrateMapTrack.video[time]) {
                         bitrateMapTrack.video[time] = 0;
@@ -749,7 +749,38 @@ class MP4Demuxer {
             meta.codec = mediaInfo.videoCodec;
             meta.codecHeight = sps.codec_size.height;
             meta.codecWidth = sps.codec_size.width;
-            meta.duration = (this._duration / 1e3 * timeScale) | 0;
+            meta.duration = Math.floor(this._duration / 1e3 * timeScale);
+            /**
+             * avoid total duration overflow
+             * video reference: http://www.acfun.cn/v/ac4376294
+             * timeScale: 6286213
+             * total duration 1491s represented as 9372743583 or 0x2,2EA8B79F
+             * but moov box is uint32, duration became 0x2EA8B79F or 782808991, which is 124.5279s
+             */
+            if (meta.duration > 0xffffffff) {
+                let newDuration = meta.duration;
+                let newTimeScale = timeScale;
+                let factor = 2;
+                while (newDuration > 0xffffffff) {
+                    if (newTimeScale % factor == 0) {
+                        newTimeScale /= factor;
+                        newDuration = Math.floor(this._duration / 1e3 * newTimeScale);
+                    } else {
+                        factor += 1;
+                    }
+                }
+                factor = timeScale / newTimeScale;
+                Log.w(this.TAG, `Huge timeScale causing duration overflow, reducing from ${timeScale} to ${newTimeScale}`);
+                chunkMap.video.forEach(i => {
+                    i.samples.forEach(i => {
+                        i.ts /= factor;
+                        i.duration /= factor;
+                        i.cts /= factor;
+                    });
+                });
+                meta.duration = newDuration;
+                timeScale = newTimeScale;
+            }
             meta.timescale = timeScale;
             meta.frameRate = sps.frame_rate;
             meta.id = id++;
@@ -782,7 +813,7 @@ class MP4Demuxer {
             sampleTsMap.audio = [];
             for (let i = 0; i < stts.length; i++) {
                 for (let j = 0; j < stts[i].sampleCount; j++) {
-                    let time = (sampleTs / timeScale) | 0;
+                    let time = Math.floor(sampleTs / timeScale);
                     maxDuration = Math.max(time, maxDuration);
                     if (!bitrateMapTrack.audio[time]) {
                         bitrateMapTrack.audio[time] = 0;
@@ -833,7 +864,7 @@ class MP4Demuxer {
             meta.codec = mediaInfo.audioCodec;
             meta.originalCodec = meta.codec;
             meta.config = specDesc.data;
-            meta.duration = (this._duration / 1e3 * timeScale) | 0;
+            meta.duration = Math.floor(this._duration / 1e3 * timeScale);
             meta.id = id++;
             meta.refSampleDuration = 1024 / meta.audioSampleRate * timeScale;
             meta.timescale = timeScale;
