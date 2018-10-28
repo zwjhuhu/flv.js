@@ -761,13 +761,18 @@ class MP4Demuxer {
                 let newDuration = meta.duration;
                 let newTimeScale = timeScale;
                 let factor = 2;
-                while (newDuration > 0xffffffff) {
+                while (newDuration > 0xffffffff && factor < timeScale / 2) {
                     if (newTimeScale % factor == 0) {
                         newTimeScale /= factor;
                         newDuration = Math.floor(this._duration / 1e3 * newTimeScale);
                     } else {
                         factor += 1;
                     }
+                }
+                // no prime factor found, force timeScale 1000
+                if (newDuration > 0xffffffff) {
+                    newTimeScale = 1000;
+                    newDuration = this._duration;
                 }
                 factor = timeScale / newTimeScale;
                 Log.w(this.TAG, `Huge timeScale causing duration overflow, reducing from ${timeScale} to ${newTimeScale}`);
