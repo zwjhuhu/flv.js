@@ -45,6 +45,7 @@ function createPlayer(mediaDataSource, optionalConfig) {
 
     switch (mds.type) {
         case 'flv':
+        case 'mkv':
             return new FlvPlayer(mds, optionalConfig);
         default:
             return new NativePlayer(mds, optionalConfig);

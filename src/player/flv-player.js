@@ -40,7 +40,10 @@ class FlvPlayer {
             Object.assign(this._config, config);
         }
 
-        if (mediaDataSource.type.toLowerCase() !== 'flv') {
+        if (mediaDataSource.type.toLowerCase() === 'mkv') {
+            this.TAG = 'MkvPlayer';
+            this._type = 'MkvPlayer';
+        } else if (mediaDataSource.type.toLowerCase() !== 'flv') {
             throw new InvalidArgumentException('FlvPlayer requires an flv MediaDataSource input!');
         }
 
