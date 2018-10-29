@@ -44,7 +44,9 @@ function doWatchify() {
     let opts = Object.assign({}, watchify.args, customOpts);
     let b = watchify(browserify(opts));
 
-    b.on('update', doBundle.bind(global, b));
+    b.on('update', function () {
+        return doBundle(b).on('end', browserSync.reload.bind(browserSync));
+    });
     b.on('log', console.log.bind(console));
 
     return b;
