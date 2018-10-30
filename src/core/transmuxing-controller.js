@@ -22,6 +22,7 @@ import Browser from '../utils/browser.js';
 import MediaInfo from './media-info.js';
 import FLVDemuxer from '../demux/flv-demuxer.js';
 import MP4Demuxer from '../demux/mp4-demuxer.js';
+import MkvDemuxer from '../demux/mkv-demuxer.js';
 import MP4Remuxer from '../remux/mp4-remuxer.js';
 import DemuxErrors from '../demux/demux-errors.js';
 import IOController from '../io/io-controller.js';
@@ -195,7 +196,7 @@ class TransmuxingController {
             // cross-segment seeking
             let targetSegmentInfo = this._mediaInfo.segments[targetSegmentIndex];
 
-            if (targetSegmentInfo == undefined || this._demuxer.TAG == 'MP4Demuxer') {
+            if (targetSegmentInfo == undefined || this._demuxer.TAG == 'MP4Demuxer' || this._demuxer.TAG == 'MkvDemuxer') {
                 // target segment hasn't been loaded. We need metadata then seek to expected time
                 this._pendingSeekTime = milliseconds;
                 this._internalAbort();
@@ -282,7 +283,30 @@ class TransmuxingController {
             // Copied from new FLVDecuxer
             // Always create new MP4Demuxer
             this._demuxer = new MP4Demuxer(probeData, this._config);
+            if (!this._remuxer) {
+                this._remuxer = new MP4Remuxer(this._config);
+            }
 
+            let mds = this._mediaDataSource;
+            if (mds.duration != undefined && !isNaN(mds.duration)) {
+                this._demuxer.overridedDuration = mds.duration;
+            }
+            this._demuxer.timestampBase = mds.segments[this._currentSegmentIndex].timestampBase;
+
+            this._demuxer.onError = this._onDemuxException.bind(this);
+            this._demuxer.onMediaInfo = this._onMediaInfo.bind(this);
+
+            this._remuxer.bindDataSource(this._demuxer
+                .bindDataSource(this._ioctl
+                ));
+
+            this._remuxer.onInitSegment = this._onRemuxerInitSegmentArrival.bind(this);
+            this._remuxer.onMediaSegment = this._onRemuxerMediaSegmentArrival.bind(this);
+
+            consumed = this._demuxer.parseChunks(data, byteStart);
+        } else if ((probeData = MkvDemuxer.probe(data)).match) {
+            // Copied from new FLVDecuxer
+            this._demuxer = new MkvDemuxer(probeData, this._config);
             if (!this._remuxer) {
                 this._remuxer = new MP4Remuxer(this._config);
             }

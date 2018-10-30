@@ -43,6 +43,9 @@ class FlvPlayer {
         if (mediaDataSource.type.toLowerCase() === 'segment-mp4') {
             this.TAG = 'SegmentMP4Player';
             this._type = 'SegmentMP4Player';
+        } else if (mediaDataSource.type.toLowerCase() === 'mkv') {
+            this.TAG = 'MkvPlayer';
+            this._type = 'MkvPlayer';
         } else if (mediaDataSource.type.toLowerCase() !== 'flv') {
             throw new InvalidArgumentException('FlvPlayer requires an flv MediaDataSource input!');
         }
