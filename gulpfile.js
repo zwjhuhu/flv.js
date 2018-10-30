@@ -90,7 +90,6 @@ gulp.task('watch', ['clean'], function () {
             open: false
         });
         require('opn')('http://localhost/demo/index.html');
-
     });
 });
 

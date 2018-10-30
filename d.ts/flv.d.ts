@@ -341,7 +341,6 @@ declare namespace FlvJs {
         enableInfo: boolean;
         enableWarn: boolean;
         enableError: boolean;
-
     }
 
     interface LoggingControl extends LoggingControlConfig {

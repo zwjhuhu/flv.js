@@ -38,7 +38,7 @@ import TMRangeLoader from './tm-range-loader.js';
  *     cors: boolean,
  *     withCredentials: boolean
  * }
- * 
+ *
  */
 
 // Manage IO Loaders
@@ -93,6 +93,8 @@ class IOController {
         this._onComplete = null;
         this._onRedirect = null;
         this._onRecoveredEarlyEof = null;
+
+        this._dumexerSeekTriggered = false;
 
         this._selectSeekHandler();
         this._selectLoader();
@@ -496,6 +498,10 @@ class IOController {
                     stashArray.set(new Uint8Array(chunk, consumed), 0);
                     this._stashUsed += remain;
                     this._stashByteStart = byteStart + consumed;
+                } else {
+                    if (this._checkSeekTriggerByDemuxer(consumed, chunk.byteLength, byteStart)) {
+                        return;
+                    }
                 }
             } else {
                 // else: Merge chunk into stashBuffer, and dispatch stashBuffer to consumer.
@@ -509,6 +515,10 @@ class IOController {
                 if (consumed < this._stashUsed && consumed > 0) {  // unconsumed data remain
                     let remainArray = new Uint8Array(this._stashBuffer, consumed);
                     stashArray.set(remainArray, 0);
+                } else {
+                    if (this._checkSeekTriggerByDemuxer(consumed, this._stashUsed, this._stashByteStart)) {
+                        return;
+                    }
                 }
                 this._stashUsed -= consumed;
                 this._stashByteStart += consumed;
@@ -538,6 +548,9 @@ class IOController {
                             this._stashByteStart += consumed;
                         }
                     } else {
+                        if (this._checkSeekTriggerByDemuxer(consumed, buffer.byteLength, this._stashByteStart)) {
+                            return;
+                        }
                         this._stashUsed = 0;
                         this._stashByteStart += consumed;
                     }
@@ -559,10 +572,39 @@ class IOController {
                         stashArray.set(new Uint8Array(chunk, consumed), 0);
                         this._stashUsed += remain;
                         this._stashByteStart = byteStart + consumed;
+                    } else {
+                        this._checkSeekTriggerByDemuxer(consumed, chunk.byteLength, byteStart);
                     }
                 }
             }
         }
+    }
+
+    //experimental just for some file which indexes info is placed behind media datas
+    _checkSeekTriggerByDemuxer(consumed, chunkLen, byteStart) {
+        if (consumed >= 0 && consumed <= chunkLen) {
+            return false;
+        }
+        Log.w(this.TAG, `experimental seek trigger by demuxer for read media index data offset ${consumed} `
+            + `last byteStart ${byteStart} last chunkLen ${chunkLen}`);
+        let bytes = byteStart + consumed;
+        this._stashUsed = 0;
+        this._stashByteStart = 0;
+
+        if (this._loader.isWorking()) {
+            this._loader.abort();
+        }
+
+        this._loader.destroy();
+        this._loader = null;
+
+        let requestRange = {from: bytes, to: -1};
+        this._currentRange = {from: requestRange.from, to: -1};
+
+        this._createLoader();
+        this._loader.open(this._dataSource, requestRange);
+        this._dumexerSeekTriggered = !this._dumexerSeekTriggered;
+        return true;
     }
 
     _flushStashBuffer(dropUnconsumed) {
@@ -593,8 +635,19 @@ class IOController {
     }
 
     _onLoaderComplete(from, to) {
-        // Force-flush stash buffer, and drop unconsumed data
-        this._flushStashBuffer(true);
+
+        if (this._dumexerSeekTriggered) {
+            Log.w(this.TAG, 'file read to end but need forward it may trigged by dumexer');
+            if (this._stashUsed > 0) {
+                let buffer = this._stashBuffer.slice(0, this._stashUsed);
+                let consumed = this._dispatchChunks(buffer, this._stashByteStart);
+                this._checkSeekTriggerByDemuxer(consumed, buffer.byteLength, this._stashByteStart);
+            }
+            return;
+        } else {
+            // Force-flush stash buffer, and drop unconsumed data
+            this._flushStashBuffer(true);
+        }
 
         if (this._onComplete) {
             this._onComplete(this._extraData);
