@@ -53,13 +53,15 @@ function boxInfo(uintarr, index) {
         boxHeadSize = 16;
     }
     let fullyLoaded = uintarr.length >= (index + boxSize);
-    if (boxSize == 0)
+    if (boxSize === 0 && boxName !== 'mdat') { // mdat size 0 may mean just read util file end
         return {
             size: 8,
             headSize: boxHeadSize,
             name: '',
             fullyLoaded: true
         };
+    }
+
     return {
         size: boxSize,
         headSize: boxHeadSize,
@@ -149,7 +151,12 @@ class MP4Demuxer {
         this._dataOffset = probeData.dataOffset;
         this._firstParse = true;
         this._dispatch = false;
+        this._mediaDataEnd = 0;
         this._mdatEnd = 0;
+
+        this._moovNeedSeek = false; // in some file moov may placed after mdat box
+        this._moovPosition = -1;
+        this._resumePosition = 0;
 
         // cache next demux start position
         this._lastChunkOffet = 0;
@@ -225,13 +232,18 @@ class MP4Demuxer {
 
         //skip all non-moov box until stream ends
         while (box.fullyLoaded) {
-            if (box.name == 'moov')
+            if (box.name == 'moov' || box.name == 'mdat')
                 break;
             offset += box.size;
             box = boxInfo(data, offset);
         }
-        //no moov found in file header, not supported at this time
-        if (box.name != 'moov') {
+
+        let moovSeekInfo = null;
+        if (box.name === 'mdat') { //no moov found in file header need inital seek
+            moovSeekInfo  = {position: offset + box.size, headerSize: box.headSize};
+        } else if (box.name === 'moov') {
+            moovSeekInfo = null;
+        } else {
             return mismatch;
         }
 
@@ -240,6 +252,7 @@ class MP4Demuxer {
             enoughData: box.fullyLoaded,
             consumed: offset,
             dataOffset: offset,
+            moovSeekInfo: moovSeekInfo
         };
     }
 
@@ -919,6 +932,13 @@ class MP4Demuxer {
             mergedChunkMap = mergedChunkMap.concat(chunkMap.audio);
         }
         mergedChunkMap = mergedChunkMap.sort(function (a, b) { return a.offset - b.offset; });
+        //find media data end position
+        if (mergedChunkMap.length > 0) {
+            let lastChunk = mergedChunkMap[mergedChunkMap.length - 1];
+            this._mediaDataEnd = lastChunk.offset + lastChunk.samples.reduce(function (sum, item) {
+                return sum + item.size;
+            }, 0);
+        }
         this._chunkMap = mergedChunkMap;
         this._mediaInfo = mediaInfo;
         if (mediaInfo.isComplete())
@@ -1017,14 +1037,24 @@ class MP4Demuxer {
         if (byteStart === 0) {  // buffer with header
             let probeData = MP4Demuxer.probe(chunk);
             offset = probeData.dataOffset;
-            if (!probeData.enoughData) {
+            if (!probeData.enoughData && !probeData.moovSeekInfo) {
                 return 0;
+            }
+
+            if (probeData.moovSeekInfo && probeData.moovSeekInfo.position) {
+                this._moovNeedSeek = true;
+                this._resumePosition = byteStart + offset + probeData.moovSeekInfo.headerSize;
+                this._mdatEnd = probeData.moovSeekInfo.position;
+                this._moovPosition = probeData.moovSeekInfo.position;
+                return this._moovPosition - byteStart;
             }
         }
 
+
+
         if (this._firstParse) {  // parse moov box
 
-            if (byteStart + offset !== this._dataOffset) {
+            if (byteStart + offset !== this._dataOffset && !this._moovNeedSeek) {
                 Log.w(this.TAG, 'First time parsing but chunk byteStart invalid!');
             }
 
@@ -1034,10 +1064,18 @@ class MP4Demuxer {
             if (!moov.fullyLoaded) {
                 return 0;
             }
-            let moovData = new Uint8Array(chunk, byteStart + offset, moov.size);
+            if (this._moovNeedSeek && this._moovPosition == byteStart + offset) {
+                Log.i(this.TAG, 'try parse moov box which is placed after mdat box');
+            }
+
+            let moovData = new Uint8Array(chunk, offset, moov.size);
             this._parseMoov(moovData);
             offset += moov.size;
             this._firstParse = false;
+            if (this._moovNeedSeek) {
+                this._moovNeedSeek = false;
+                return this._resumePosition - byteStart;
+            }
 
         }
 
@@ -1045,9 +1083,10 @@ class MP4Demuxer {
         while (this._mdatEnd === 0) {
             let v = new Uint8Array(chunk, offset);
             let box = boxInfo(v, 0);
-            if (box.name == 'mdat') {
+            if (box.name === 'mdat') {
                 this._mdatEnd = byteStart + offset + box.size;
                 offset += box.headSize;
+                break;
             } else {
                 if (box.fullyLoaded) {
                     //not mdat box, skip
@@ -1060,8 +1099,7 @@ class MP4Demuxer {
             }
         }
 
-        //mdat data ended just skip left bytes
-        if (byteStart + offset >= this._mdatEnd) {
+        if (byteStart + offset >= this._mediaDataEnd) {
             this._proccessedByte = byteStart + chunk.byteLength;
             return chunk.byteLength;
         }
@@ -1094,7 +1132,23 @@ class MP4Demuxer {
             dataChunk = chunkMap[chunkOffset];
 
             if (!dataChunk) {
-                throw new IllegalStateException(`search first chunk fail for sampleOffset ${sampleOffset} get chunkOffset ${chunkOffset}`);
+                if (sampleOffset < chunkMap[0].offset) {
+                    chunkOffset = 0;
+                    dataChunk = chunkMap[chunkOffset];
+                    let expectedOffset = dataChunk.offset;
+                    if (byteStart + chunk.byteLength >= dataChunk.offset) {
+                        let skipBytes = expectedOffset - sampleOffset;
+                        offset += skipBytes;
+                        sampleOffset += skipBytes;
+                        Log.w(this.TAG, `mdat data not just start from the first sample skip unused bytes ${skipBytes}`);
+                    } else {// data not enough
+                        return chunk.byteLength;
+                    }
+
+                } else {
+                    throw new IllegalStateException(`search first chunk fail for sampleOffset ${sampleOffset} get chunkOffset ${chunkOffset}`);
+                }
+
             }
 
             //find sample index in target chunk
