@@ -368,6 +368,11 @@ class MP4Remuxer {
                 }
             }
 
+            if (sampleDuration < 1) {
+                Log.w(this.TAG, `irregular audio sampleDuration: ${sampleDuration} may cause by non-increasing dts just use refSampleDuration ${refSampleDuration}`);
+                sampleDuration = Math.floor(refSampleDuration);
+            }
+
             let needFillSilentFrames = false;
             let silentFrames = null;
 
@@ -636,6 +641,11 @@ class MP4Remuxer {
                 } else {  // the only one sample, use reference sample duration
                     sampleDuration = Math.floor(this._videoMeta.refSampleDuration);
                 }
+            }
+
+            if (sampleDuration < 1) {
+                Log.w(this.TAG, `irregular video sampleDuration: ${sampleDuration} may cause by non-increasing dts just use refSampleDuration ${this._videoMeta.refSampleDuration}`);
+                sampleDuration = Math.floor(this._videoMeta.refSampleDuration);
             }
 
             if (isKeyframe) {
