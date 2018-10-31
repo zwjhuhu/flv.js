@@ -354,9 +354,7 @@ class MP4Remuxer {
 
             let sampleDuration = 0;
 
-            if (sample.duration !== undefined) {
-                sampleDuration = sample.duration;
-            } else if (i !== samples.length - 1) {
+            if (i !== samples.length - 1) {
                 let nextDts = samples[i + 1].dts - this._dtsBase - dtsCorrection;
                 sampleDuration = nextDts - dts;
             } else {  // the last sample
@@ -368,6 +366,11 @@ class MP4Remuxer {
                 } else {  // the only one sample, use reference sample duration
                     sampleDuration = Math.floor(refSampleDuration);
                 }
+            }
+
+            if (sampleDuration < 1) {
+                Log.w(this.TAG, `irregular audio sampleDuration: ${sampleDuration} may cause by non-increasing dts just use refSampleDuration ${refSampleDuration}`);
+                sampleDuration = Math.floor(refSampleDuration);
             }
 
             let needFillSilentFrames = false;
@@ -489,7 +492,6 @@ class MP4Remuxer {
         info.endDts = lastDts;
         info.beginPts = firstDts;
         info.endPts = lastDts;
-        info.timeScale = this._audioMeta.timescale;
         info.originalBeginDts = mp4Samples[0].originalDts;
         info.originalEndDts = latest.originalDts + latest.duration;
         info.firstSample = new SampleInfo(mp4Samples[0].dts,
@@ -627,9 +629,7 @@ class MP4Remuxer {
 
             let sampleDuration = 0;
 
-            if (sample.duration !== undefined) {
-                sampleDuration = sample.duration;
-            } else if (i !== samples.length - 1) {
+            if (i !== samples.length - 1) {
                 let nextDts = samples[i + 1].dts - this._dtsBase - dtsCorrection;
                 sampleDuration = nextDts - dts;
             } else {  // the last sample
@@ -643,15 +643,9 @@ class MP4Remuxer {
                 }
             }
 
-            sampleDuration += dtsCorrection;
-            if (dtsCorrection > this._videoMeta.refSampleDuration * 1.5) {
-                Log.w(this.TAG, 'Large video timestamp gap detected, ' +
-                                `dts: ${dts + sampleDuration} ms, expected: ${dts + Math.round(this._videoMeta.refSampleDuration)} ms. `);
-            }
-            dtsCorrection = 0;
-            if (sampleDuration < 5) {
-                dtsCorrection = sampleDuration - 5;
-                sampleDuration = 5;
+            if (sampleDuration < 1) {
+                Log.w(this.TAG, `irregular video sampleDuration: ${sampleDuration} may cause by non-increasing dts just use refSampleDuration ${this._videoMeta.refSampleDuration}`);
+                sampleDuration = Math.floor(this._videoMeta.refSampleDuration);
             }
 
             if (isKeyframe) {
@@ -708,7 +702,6 @@ class MP4Remuxer {
         info.endDts = lastDts;
         info.beginPts = firstPts;
         info.endPts = lastPts;
-        info.timeScale = this._videoMeta.timescale;
         info.originalBeginDts = mp4Samples[0].originalDts;
         info.originalEndDts = latest.originalDts + latest.duration;
         info.firstSample = new SampleInfo(mp4Samples[0].dts,
