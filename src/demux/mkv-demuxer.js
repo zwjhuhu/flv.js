@@ -45,6 +45,8 @@ class MKVDemuxer {
 
         this._defaultVideoTrack = null;
         this._defaultAudioTrack = null;
+        this._defaultAudioScaledDuration = 0;
+        this._defaultVideoScaledDuration = 0;
 
         this._lastVideoDts = 0;
         this._lastClusterOffset = -1;
@@ -191,6 +193,8 @@ class MKVDemuxer {
         this._mediaInfo = new MediaInfo();
         this._seekForCues = false;
         this._resumePosition = -1;
+        this._defaultAudioScaledDuration = 0;
+        this._defaultVideoScaledDuration = 0;
     }
 
     _isInitialMetadataDispatched() {
@@ -247,7 +251,6 @@ class MKVDemuxer {
             codecs.push(mediaInfo.videoCodec);
 
             //mediaInfo.videoDataRate = size / mediaInfo.metadata.duration * 8;
-            //mediaInfo.videoDataRate = 1000 * 8; //dummy because could not found in spec
             mediaInfo.width = sps.present_size.width;
             mediaInfo.height = sps.present_size.height;
             mediaInfo.fps = sps.frame_rate.fps;
@@ -281,7 +284,6 @@ class MKVDemuxer {
                 return;
             }
 
-            //let timeScale = 24000;
             let meta = {};
             meta.avcc = avcC.data;
             meta.bitDepth = sps.bit_depth;
@@ -298,6 +300,15 @@ class MKVDemuxer {
             meta.presentWidth = sps.present_size.width;
             meta.profile = sps.profile_string;
             meta.refSampleDuration = meta.timescale * (meta.frameRate.fps_den / meta.frameRate.fps_num);
+            if (meta.refSampleDuration < 1) {
+                Log.w(this.TAG, `uncommon video refSampleDuration ${meta.refSampleDuration} from timescale: ${meta.timescale} `
+                    + `framerate: fixed ${meta.frameRate.fixed} fps ${meta.frameRate.fps} fps_num ${meta.frameRate.fps_num} fps_den ${meta.frameRate.fps_den}`);
+                if (!this._defaultVideoTrack.defaultDuration) {
+                    Log.w('video defaultDuration not found just use 24fps');
+                    this._defaultVideoTrack.defaultDuration = Math.round(1e9 / 24);
+                }
+                meta.refSampleDuration = Math.round(this._defaultAudioTrack.defaultDuration / 1e9 * meta.timescale);
+            }
             meta.sarRatio = sps.sar_ratio;
             meta.type = 'video';
             this._onTrackMetadata('video', meta);
@@ -312,7 +323,6 @@ class MKVDemuxer {
             mediaInfo.audioChannelCount = specDesc.channelConfig;
 
             //mediaInfo.audioDataRate = size / mediaInfo.metadata.duration * 8;
-            //mediaInfo.audioDataRate = 256 * 1024;// dummy could not find
             let meta = {};
             meta.type = 'audio';
             meta.audioSampleRate = mediaInfo.audioSampleRate;
@@ -569,18 +579,29 @@ class MKVDemuxer {
         let cluster = _mkvParser.parseCluster(chunk, offset, chunk.byteLength - offset);
         let blocks = cluster.blocks;
         let track = null;
-        let audioScaledDuration = this._defaultAudioTrack.defaultDuration;
-        if (audioScaledDuration) {
-            audioScaledDuration = Math.round(this._defaultAudioTrack.defaultDuration / 1e9 * this._audioMetadata.timescale);
-        } else {
-            audioScaledDuration = Math.round(this._audioMetadata.refSampleDuration);
+
+        let audioScaledDuration = this._defaultAudioScaledDuration;
+        if (!audioScaledDuration) {
+            audioScaledDuration = this._defaultAudioTrack.defaultDuration;
+            if (audioScaledDuration) {
+                audioScaledDuration = Math.round(this._defaultAudioTrack.defaultDuration / 1e9 * this._audioMetadata.timescale);
+            } else {
+                audioScaledDuration = Math.round(this._audioMetadata.refSampleDuration);
+            }
+            this._defaultAudioScaledDuration = audioScaledDuration;
         }
-        let videoScaledDuration = this._defaultVideoTrack.defaultDuration;
-        if (videoScaledDuration) {
-            videoScaledDuration = Math.round(this._defaultVideoTrack.defaultDuration / 1e9 * this._videoMetadata.timescale);
-        } else {
-            videoScaledDuration = Math.round(this._videoMetadata.refSampleDuration);
+
+        let videoScaledDuration = this._defaultVideoScaledDuration;
+        if (!videoScaledDuration) {
+            videoScaledDuration = this._defaultVideoTrack.defaultDuration;
+            if (videoScaledDuration) {
+                videoScaledDuration = Math.round(this._defaultVideoTrack.defaultDuration / 1e9 * this._videoMetadata.timescale);
+            } else {
+                videoScaledDuration = Math.round(this._videoMetadata.refSampleDuration);
+            }
+            this._defaultVideoScaledDuration = videoScaledDuration;
         }
+
         let audioTimeBase = this._timestampBase / 1e3 * this._audioMetadata.timescale;
         let videoTimeBase = this._timestampBase / 1e3 * this._videoMetadata.timescale;
 
@@ -673,7 +694,7 @@ class MKVDemuxer {
         }
     }
 
-    _parseAVCVideoData(arrayBuffer, dataOffset, dataSize, tagPosition, frameType, pts, cts, duration) {
+    _parseAVCVideoData(arrayBuffer, dataOffset, dataSize, tagPosition, keyframe, pts, cts, duration) {
         let le = this._littleEndian;
         let v = new DataView(arrayBuffer, dataOffset, dataSize);
 
@@ -682,7 +703,6 @@ class MKVDemuxer {
         let offset = 0;
         const lengthSize = this._naluLengthSize;
         let dts = pts - cts;
-        let keyframe = (frameType === 1);  // from FLV Frame Type constants
 
         while (offset < dataSize) {
             if (offset + 4 >= dataSize) {
