@@ -370,6 +370,11 @@ class MP4Remuxer {
                 }
             }
 
+            if (sampleDuration < 1) {
+                Log.w(this.TAG, `irregular audio sampleDuration: ${sampleDuration} may cause by non-increasing dts just use refSampleDuration ${refSampleDuration}`);
+                sampleDuration = Math.floor(refSampleDuration);
+            }
+
             let needFillSilentFrames = false;
             let silentFrames = null;
 
@@ -643,15 +648,9 @@ class MP4Remuxer {
                 }
             }
 
-            sampleDuration += dtsCorrection;
-            if (dtsCorrection > this._videoMeta.refSampleDuration * 1.5) {
-                Log.w(this.TAG, 'Large video timestamp gap detected, ' +
-                                `dts: ${dts + sampleDuration} ms, expected: ${dts + Math.round(this._videoMeta.refSampleDuration)} ms. `);
-            }
-            dtsCorrection = 0;
-            if (sampleDuration < 5) {
-                dtsCorrection = sampleDuration - 5;
-                sampleDuration = 5;
+            if (sampleDuration < 1) {
+                Log.w(this.TAG, `irregular video sampleDuration: ${sampleDuration} may cause by non-increasing dts just use refSampleDuration ${this._videoMeta.refSampleDuration}`);
+                sampleDuration = Math.floor(this._videoMeta.refSampleDuration);
             }
 
             if (isKeyframe) {
