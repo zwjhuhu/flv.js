@@ -280,9 +280,11 @@ class MP4Demuxer {
                             nextID  4   96
                             */
                             body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 8, box.size - 8);
-                            let timeScale = ReadBig32(body, 12);
-                            let duration = ReadBig32(body, 16);
+                            let version = body[0];
+                            let timeScale = ReadBig32(body, version == 1 ? 20 : 12);
+                            let duration = version == 1 ? ReadBig64(body, 24) : ReadBig32(body, 16);
                             parent[box.name] = {
+                                version,
                                 timeScale,
                                 duration
                             };
@@ -343,16 +345,16 @@ class MP4Demuxer {
                             quality 2   22
                             */
                             body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 8, box.size - 8);
-                            let timeScale = ReadBig32(body, 12);
-                            let duration = ReadBig32(body, 16);
-                            let language = ReadBig16(body, 20);
-                            let quality = ReadBig16(body, 22);
+                            let version = body[0];
+                            let boxOffset = version == 1 ? 24 : 16;
+                            let duration = (version == 1 ? ReadBig64 : ReadBig32)(body, boxOffset);
+                            boxOffset += version == 1 ? 8 : 4;
+                            let language = ReadBig16(body, boxOffset);
 
                             parent[box.name] = {
-                                timeScale,
+                                version,
                                 duration,
-                                language,
-                                quality
+                                language
                             };
                             break;
                         }
@@ -413,7 +415,7 @@ class MP4Demuxer {
                             let recordLength;
                             let boxOffset = 6;
                             for (let i = 0; i < nb_nalus; i++) {
-                                recordLength = ReadBig16(body, offset);
+                                recordLength = ReadBig16(body, boxOffset);
                                 boxOffset += 2;
                                 SPS[i] = SPSParser.parseSPS(new Uint8Array(data.buffer, data.byteOffset + index + offset + 8 + boxOffset, recordLength));
                                 let codecString = 'avc1.';
