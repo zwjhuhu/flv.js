@@ -43,6 +43,9 @@ class FlvPlayer {
         if (mediaDataSource.type.toLowerCase() === 'mkv') {
             this.TAG = 'MkvPlayer';
             this._type = 'MkvPlayer';
+        } else if (mediaDataSource.type.toLowerCase() === 'webm') {
+            this.TAG = 'WebmPlayer';
+            this._type = 'WebmPlayer';
         } else if (mediaDataSource.type.toLowerCase() !== 'flv') {
             throw new InvalidArgumentException('FlvPlayer requires an flv MediaDataSource input!');
         }
@@ -220,7 +223,11 @@ class FlvPlayer {
             // lazyLoad check
             if (this._config.lazyLoad && !this._config.isLive) {
                 let currentTime = this._mediaElement.currentTime;
-                if (ms.info.endDts >= (currentTime + this._config.lazyLoadMaxDuration) * 1000) {
+                let buffedTime = ms.info ? ms.info.endDts : 0;
+                if (buffedTime === 0) {
+                    buffedTime = this._mediaElement.buffered.length ? this._mediaElement.buffered.end(0) : 0;
+                }
+                if (buffedTime >= (currentTime + this._config.lazyLoadMaxDuration) * 1000) {
                     if (this._progressChecker == null) {
                         Log.v(this.TAG, 'Maximum buffering duration exceeded, suspend transmuxing task');
                         this._suspendTransmuxer();

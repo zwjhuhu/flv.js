@@ -22,7 +22,9 @@ import Browser from '../utils/browser.js';
 import MediaInfo from './media-info.js';
 import FLVDemuxer from '../demux/flv-demuxer.js';
 import MkvDemuxer from '../demux/mkv-demuxer.js';
+import WEBMDemuxer from '../demux/webm-demuxer.js';
 import MP4Remuxer from '../remux/mp4-remuxer.js';
+import WEBMRemuxer from '../remux/webm-remuxer.js';
 import DemuxErrors from '../demux/demux-errors.js';
 import IOController from '../io/io-controller.js';
 import TransmuxingEvents from './transmuxing-events.js';
@@ -195,7 +197,7 @@ class TransmuxingController {
             // cross-segment seeking
             let targetSegmentInfo = this._mediaInfo.segments[targetSegmentIndex];
 
-            if (targetSegmentInfo == undefined || this._demuxer.TAG == 'MkvDemuxer') {
+            if (targetSegmentInfo == undefined || this._demuxer.TAG == 'MkvDemuxer' || this._demuxer.TAG == 'WEBMDemuxer') {
                 // target segment hasn't been loaded. We need metadata then seek to expected time
                 this._pendingSeekTime = milliseconds;
                 this._internalAbort();
@@ -284,6 +286,31 @@ class TransmuxingController {
 
             if (!this._remuxer) {
                 this._remuxer = new MP4Remuxer(this._config);
+            }
+
+            let mds = this._mediaDataSource;
+            if (mds.duration != undefined && !isNaN(mds.duration)) {
+                this._demuxer.overridedDuration = mds.duration;
+            }
+            this._demuxer.timestampBase = mds.segments[this._currentSegmentIndex].timestampBase;
+
+            this._demuxer.onError = this._onDemuxException.bind(this);
+            this._demuxer.onMediaInfo = this._onMediaInfo.bind(this);
+
+            this._remuxer.bindDataSource(this._demuxer
+                .bindDataSource(this._ioctl
+                ));
+
+            this._remuxer.onInitSegment = this._onRemuxerInitSegmentArrival.bind(this);
+            this._remuxer.onMediaSegment = this._onRemuxerMediaSegmentArrival.bind(this);
+
+            consumed = this._demuxer.parseChunks(data, byteStart);
+        } else if ((probeData = WEBMDemuxer.probe(data)).match) {
+            // Copied from new FLVDecuxer
+            this._demuxer = new WEBMDemuxer(probeData, this._config);
+
+            if (!this._remuxer) {
+                this._remuxer = new WEBMRemuxer(this._config);
             }
 
             let mds = this._mediaDataSource;
@@ -416,7 +443,7 @@ class TransmuxingController {
 
         // Resolve pending seekPoint
         if (this._pendingResolveSeekPoint != null && type === 'video') {
-            let syncPoints = mediaSegment.info.syncPoints;
+            let syncPoints = mediaSegment.info ? mediaSegment.info.syncPoints : [];
             let seekpoint = this._pendingResolveSeekPoint;
             this._pendingResolveSeekPoint = null;
 

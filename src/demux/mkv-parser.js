@@ -105,6 +105,7 @@ class EBMLElement {
             this.readId();
             this.nextOuterByteLength = this.readLength() + this.readPos - this.outerByteLength;
         }
+        this.rawData = this.dataView.buffer.slice(offset, offset + this.outerByteLength);
     }
 
     destroy() {
@@ -260,13 +261,34 @@ class MKVParser {
         return false;
     }
 
+    isWebm(buffer, offset, length) {
+        let firstElement = new EBMLElement(buffer, offset, length);
+        if (firstElement.name != 'EBML') {
+            Log.v('first element in file is not "EBML" ', false);
+            return false;
+        }
+        if (!firstElement.childElements) {
+            Log.v('EBML header is unusually large.');
+            return false;
+        }
+        for (let i in firstElement.childElements) {
+            if (firstElement.childElements[i].name == 'DocType') {
+                if (firstElement.childElements[i].value == 'webm') {
+                    return true;
+                }
+            }
+        }
+        Log.v('Could not find DocType', false);
+        return false;
+    }
+
     parseTopElement(buffer, offset, length) {
         let element = new EBMLElement(buffer, offset, length, true);
         return element;
     }
 
     parseEBML(buffer, offset, length) {
-        return this.parseTopElement(buffer, offset, length);
+        return new EBMLElement(buffer, offset, length, false);
     }
 
     parseSeekHead(buffer, offset, length) {
@@ -320,6 +342,7 @@ class MKVParser {
         ret = infoElement.getChildWithName('Title');
         if (ret)
             info.title = ret.value;
+        info.rawData = infoElement.rawData;
         infoObject.info = info;
         return infoObject;
     }
@@ -424,6 +447,7 @@ class MKVParser {
             }
             a = track.getChildWithName('ContentEncodings');
             if (a) t.contentEncoding = true;
+            t.rawData = track.rawData;
             tracks.push(t);
         }
         tracksObject.tracks = tracks;
@@ -490,6 +514,7 @@ class MKVParser {
                 if (element.childElements[i].name == 'SimpleBlock') {
                     let sbe = element.childElements[i];
                     let block = this._readSimpleBlock(sbe.value);
+                    block.rawData = sbe.rawData;
                     block.framesDataLocation = element.headerByteLength + sbe.relativeOffset + sbe.headerByteLength + block.framesDataOffset;
                     sbes.push(block);
                 }

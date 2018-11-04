@@ -281,5 +281,11 @@ class EBMLSpec {
             return this.ids[id].name;
         else return 'unknown';
     }
+
+    getIdForName(name) {
+        if (this.names.hasOwnProperty(name))
+            return this.names[name].id;
+        else return null;
+    }
 }
 export const MatroskaSpec = new EBMLSpec(matroskaSpecXML);
