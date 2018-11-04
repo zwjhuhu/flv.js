@@ -298,9 +298,11 @@ class MP4Demuxer {
                             nextID  4   96
                             */
                             body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 8, box.size - 8);
-                            let timeScale = ReadBig32(body, 12);
-                            let duration = ReadBig32(body, 16);
+                            let version = body[0];
+                            let timeScale = ReadBig32(body, version == 1 ? 20 : 12);
+                            let duration = version == 1 ? ReadBig64(body, 24) : ReadBig32(body, 16);
                             parent[box.name] = {
+                                version,
                                 timeScale,
                                 duration
                             };
@@ -326,17 +328,28 @@ class MP4Demuxer {
                             Theight 4   80
                             */
                             body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 8, box.size - 8);
+                            let version = body[0];
                             let flags = {
                                 trackEnbaled: body[3] & 1,
                                 trackInMovie: (body[3] & 2) >> 1,
                                 trackInPreview: (body[3] & 4) >> 2,
                                 trackInPoster: (body[3] & 8) >> 3
                             };
-                            let trackID = ReadBig32(body, 12);
-                            let duration = ReadBig32(body, 20);
-                            let group = ReadBig16(body, 34);
-                            let trackWidth = parseFloat(ReadBig16(body, 72) + '.' + ReadBig16(body, 74));
-                            let trackHeight = parseFloat(ReadBig16(body, 76) + '.' + ReadBig16(body, 78));
+                            let boxOffset = version == 1 ? 20 : 12;
+
+                            let trackID = ReadBig32(body, boxOffset);
+                            boxOffset += 4;
+                            boxOffset += 4;//reserve
+                            let duration = version == 1 ? ReadBig64(body, boxOffset) : ReadBig32(body, boxOffset);
+                            boxOffset += version == 1 ? 8 : 4;
+                            boxOffset += 8;//reserve
+                            boxOffset += 2;//layer
+                            let group = ReadBig16(body, boxOffset);
+                            boxOffset += 2;
+                            boxOffset += 2 + 2 + 36;//volume reserve matrix
+                            let trackWidth = parseFloat(ReadBig16(body, boxOffset) + '.' + ReadBig16(body, boxOffset + 2));
+                            boxOffset += 4;
+                            let trackHeight = parseFloat(ReadBig16(body, boxOffset) + '.' + ReadBig16(body, boxOffset + 2));
 
                             parent[box.name] = {
                                 flags,
@@ -361,16 +374,29 @@ class MP4Demuxer {
                             quality 2   22
                             */
                             body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 8, box.size - 8);
-                            let timeScale = ReadBig32(body, 12);
-                            let duration = ReadBig32(body, 16);
-                            let language = ReadBig16(body, 20);
-                            let quality = ReadBig16(body, 22);
-
+                            let version = body[0];
+                            let timeScale = 0;
+                            let duration = 0;
+                            let language = 0;
+                            let boxOffset = 0;
+                            if (version == 1) {
+                                boxOffset = 20;
+                                timeScale = ReadBig32(body, boxOffset);
+                                boxOffset += 4;
+                                duration = ReadBig64(body, boxOffset);
+                                boxOffset += 8;
+                            } else {
+                                boxOffset = 12;
+                                timeScale = ReadBig32(body, boxOffset);
+                                boxOffset += 4;
+                                duration = ReadBig32(body, boxOffset);
+                                boxOffset += 4;
+                            }
+                            language = ReadBig16(body, boxOffset);
                             parent[box.name] = {
                                 timeScale,
                                 duration,
-                                language,
-                                quality
+                                language
                             };
                             break;
                         }
@@ -431,7 +457,7 @@ class MP4Demuxer {
                             let recordLength;
                             let boxOffset = 6;
                             for (let i = 0; i < nb_nalus; i++) {
-                                recordLength = ReadBig16(body, offset);
+                                recordLength = ReadBig16(body, boxOffset);
                                 boxOffset += 2;
                                 SPS[i] = SPSParser.parseSPS(new Uint8Array(data.buffer, data.byteOffset + index + offset + 8 + boxOffset, recordLength));
                                 let codecString = 'avc1.';
@@ -517,13 +543,18 @@ class MP4Demuxer {
                             break;
                         }
                         case 'ctts': {
-                            body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 12, box.size - 12);
-                            let entryCount = ReadBig32(body, 0);
+                            body = new Uint8Array(data.buffer, data.byteOffset + index + offset + 8, box.size - 8);
+                            let version = body[0];
+                            let entryCount = ReadBig32(body, 4);
                             let sampleTable = [];
-                            let boxOffset = 4;
+                            let boxOffset = 8;
                             for (let i = 0; i < entryCount; i++) {
                                 let sampleCount = ReadBig32(body, boxOffset);
+                                //some files are buggy and declare version=0 while using signed offsets
                                 let compositionOffset = ReadBig32(body, boxOffset + 4);
+                                if (compositionOffset >= 0x80000000) { //this value may intend a signed offset
+                                    compositionOffset &= 0xffffffff;
+                                }
                                 sampleTable.push({
                                     sampleCount, compositionOffset
                                 });
