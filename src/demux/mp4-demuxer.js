@@ -19,6 +19,7 @@ import SPSParser from './sps-parser.js';
 import DemuxErrors from './demux-errors.js';
 import MediaInfo from '../core/media-info.js';
 import { IllegalStateException } from '../utils/exception.js';
+import Browser from '../utils/browser.js';
 
 
 function ReadBig16(array, index) {
@@ -692,6 +693,9 @@ class MP4Demuxer {
         let codecs = [];
         let id = 1;
         let accurateDuration = [0];
+        let keyframesIndex = { times: [], filepositions: [], chunkOffsets: [], pts: [], dts: [] };
+        let videoTimeScale = 0;
+        let audioTimeScale = 0;
         if (mediaInfo.hasVideo) {
             let sps = tracks.video.mdia[0].minf[0].stbl[0].stsd[0].avc1.extensions.avcC.SPS[0];
             mediaInfo.videoCodec = sps.codecString;
@@ -739,7 +743,6 @@ class MP4Demuxer {
             let sampleToChunkOffset = 0;
             let chunkNumber = 1;
             sampleNumber = 0;
-            let keyframesIndex = { times: [], filepositions: [] };
             chunkMap.video = [];
             for (let i = 0; i < stco.length; i++) {
                 if (nextChunkRule != undefined && chunkNumber >= nextChunkRule.firstChunk) {
@@ -772,13 +775,17 @@ class MP4Demuxer {
                     });
 
                     if (isKeyframe) {
-                        // when seek use keyframes player's currentTime may not exactly equal to keyframe sample's pts
-                        // cause player.currentTime < player.buffered.start(0) playing will stuck until seek to buffered position manually
-                        // so add some delay to skip it,may seek to some position after this keyframe but it could continue playing
-                        let decodeDelta = 10 * duration;
-                        let milliseconds = this._timestampBase + (ts + cts + decodeDelta) / timeScale * 1e3;
-                        keyframesIndex.times.push(milliseconds);
+                        // sync point(video key frame) here is just give a video sample's file offset
+                        // but the first audio frame after this file offset may have have a pts/dts bigger than this video frame
+                        // in this case mediaElement's buffed start time will equal the first audio frame's pts/dts
+                        // (Chrome/Edge use dts Firefox/Safari use pts) seek to video frame's pts or dts may cause video stuck
+                        // becasuse no audio data could be rendered at this time so try sync seek time to the first audio's pts/dts
+                        // here just save dts pts chunkOffset for search in sync proccess later
+                        // The case may cause by the file was encoded without gop setting
+                        keyframesIndex.pts.push(ts + cts);
+                        keyframesIndex.dts.push(ts);
                         keyframesIndex.filepositions.push(currentChunk.offset + sampleOffset);
+                        keyframesIndex.chunkOffsets.push(currentChunk.offset);
                     }
                     sampleOffset += size;
                 }
@@ -848,6 +855,7 @@ class MP4Demuxer {
                 meta.duration = newDuration;
                 timeScale = newTimeScale;
             }
+            videoTimeScale = timeScale;
             meta.timescale = timeScale;
             meta.frameRate = sps.frame_rate;
             meta.id = id++;
@@ -934,6 +942,7 @@ class MP4Demuxer {
             meta.duration = Math.floor(this._duration / 1e3 * timeScale);
             meta.id = id++;
             meta.refSampleDuration = 1024 / meta.audioSampleRate * timeScale;
+            audioTimeScale = timeScale;
             meta.timescale = timeScale;
             this._onTrackMetadata('audio', meta);
             this._audioInitialMetadataDispatched = true;
@@ -962,7 +971,18 @@ class MP4Demuxer {
         if (mediaInfo.hasAudio) {
             mergedChunkMap = mergedChunkMap.concat(chunkMap.audio);
         }
-        mergedChunkMap = mergedChunkMap.sort(function (a, b) { return a.offset - b.offset; });
+        mergedChunkMap = mergedChunkMap.sort(function (a, b) {
+            let ret = a.offset - b.offset;
+            if (ret === 0) {
+                //make sure video samples before audio samples
+                if (a.type === 'video') {
+                    ret = -1;
+                } else {
+                    ret = 1;
+                }
+            }
+            return ret;
+        });
         //find media data end position
         if (mergedChunkMap.length > 0) {
             let lastChunk = mergedChunkMap[mergedChunkMap.length - 1];
@@ -971,10 +991,81 @@ class MP4Demuxer {
             }, 0);
         }
         this._chunkMap = mergedChunkMap;
+        //sync seek position's timeoffset
+        this._syncKeyFramesTimeOffset(keyframesIndex, videoTimeScale, audioTimeScale);
+
         this._mediaInfo = mediaInfo;
         if (mediaInfo.isComplete())
             this._onMediaInfo(mediaInfo);
         Log.v(this.TAG, 'Parsed moov box, hasVideo: ' + mediaInfo.hasVideo + ' hasAudio: ' + mediaInfo.hasAudio + ', accurate duration: ' + mediaInfo.accurateDuration);
+    }
+
+    _syncKeyFramesTimeOffset(keyframesIndex, videoTimeScale, audioTimeScale) {
+        if (!this._hasVideo || !keyframesIndex) {
+            return;
+        }
+        let usePts = Browser.firefox || Browser.safari;
+        if (this._hasAudio) {
+            for (let i = 0, len = keyframesIndex.chunkOffsets.length, mapLen = this._chunkMap.length, j = 0; i < len; i++) {
+                let chunkOffset = keyframesIndex.chunkOffsets[i];
+                let dataChunk = null;
+                let nextChunk = null;
+                let chunkType = null;
+                let refPts = null;
+                let refDts = null;
+                let nextPts = null;
+                let nextDts = null;
+
+                while (chunkOffset !== this._chunkMap[j].offset && j < mapLen) {
+                    j++;
+                }
+                if (j >= mapLen) {
+                    break;
+                }
+
+                dataChunk = this._chunkMap[j];
+                chunkType = dataChunk.type;
+                refPts = keyframesIndex.pts[i];
+                refDts = keyframesIndex.dts[i];
+                let nextj = j + 1;
+                while (nextChunk === null && nextj < mapLen) {
+                    nextChunk = this._chunkMap[nextj];
+                    if (nextChunk.type === chunkType) {
+                        nextChunk = null;
+                        nextj++;
+                    }
+                }
+                if (!nextChunk) {
+                    break;//last chunk
+                }
+                //for now it must be audio samples so just use sample 0
+                nextPts = nextChunk.samples[0].ts + (nextChunk.samples[0].cts ? nextChunk.samples[0].cts : 0);
+                nextDts = nextChunk.samples[0].ts;
+                if (refPts / videoTimeScale < nextPts / audioTimeScale) {
+                    keyframesIndex.pts[i] = nextPts * videoTimeScale / audioTimeScale;
+                }
+                if (refDts / videoTimeScale < nextDts / audioTimeScale) {
+                    keyframesIndex.dts[i] = nextDts * videoTimeScale / audioTimeScale;
+                }
+
+            }
+        }
+
+
+        let kind = 'dts';
+        if (usePts) {
+            kind = 'pts';
+        }
+        for (let i = 0, len = keyframesIndex[kind].length; i < len; i++) {
+            keyframesIndex.times[i]  = keyframesIndex[kind][i];
+        }
+        let timeScale = keyframesIndex.timeScale;
+        for (let i = 0, len = keyframesIndex.times.length; i < len; i++) {
+            keyframesIndex.times[i] = this._timestampBase +  Math.ceil(keyframesIndex.times[i]  * 1e3 / videoTimeScale);
+        }
+        delete keyframesIndex.dts;
+        delete keyframesIndex.pts;
+        delete keyframesIndex.chunkOffsets;
     }
 
     bindDataSource(loader) {
@@ -1063,6 +1154,7 @@ class MP4Demuxer {
 
         let offset = 0;
         let le = this._littleEndian;
+
 
         this._dispatch = false;
         if (byteStart === 0) {  // buffer with header
