@@ -489,7 +489,7 @@ class IOController {
                 // dispatch chunk directly to consumer;
                 // check ret value (consumed bytes) and stash unconsumed to stashBuffer
                 let consumed = this._dispatchChunks(chunk, byteStart);
-                if (consumed < chunk.byteLength) {  // unconsumed data remain.
+                if (consumed < chunk.byteLength && consumed >= 0) {  // unconsumed data remain.
                     let remain = chunk.byteLength - consumed;
                     if (remain > this._bufferSize) {
                         this._expandBuffer(remain);
@@ -540,7 +540,7 @@ class IOController {
                     // then append chunk to stashBuffer (stash)
                     let buffer = this._stashBuffer.slice(0, this._stashUsed);
                     let consumed = this._dispatchChunks(buffer, this._stashByteStart);
-                    if (consumed < buffer.byteLength) {
+                    if (consumed < buffer.byteLength && consumed >= 0) {
                         if (consumed > 0) {
                             let remainArray = new Uint8Array(buffer, consumed);
                             stashArray.set(remainArray, 0);
@@ -563,7 +563,7 @@ class IOController {
                 } else {  // stash buffer empty, but chunkSize > stashSize (oh, holy shit)
                     // dispatch chunk directly and stash remain data
                     let consumed = this._dispatchChunks(chunk, byteStart);
-                    if (consumed < chunk.byteLength) {
+                    if (consumed < chunk.byteLength && consumed >= 0) {
                         let remain = chunk.byteLength - consumed;
                         if (remain > this._bufferSize) {
                             this._expandBuffer(remain);
