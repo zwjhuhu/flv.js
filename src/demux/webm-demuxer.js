@@ -24,6 +24,17 @@ import { IllegalStateException } from '../utils/exception.js';
 
 const _mkvParser = new MKVParser();
 
+/**
+ * Firefox: some files may play as well but may cause SourceBuffer become scattered
+ *
+ * some tips:
+ * https://bugzilla.mozilla.org/show_bug.cgi?id=1240201
+ * the time between two webm blocks do not match the sum of the samples in those blocks.
+ * So this cause the buffered range reported to no be continuous:
+ * example: expected "{ [0.000, 6.050) }"
+ * but got "{ [0.013, 0.384) [0.408, 0.779) [0.803, 2.381) [2.405, 3.565) [3.589, 3.960) [3.984, 4.378) [4.402, 5.562) [5.586, 5.957) [5.981, 6.050) }
+ *
+ */
 class WEBMDemuxer {
 
     constructor(probeData, config) {
@@ -257,7 +268,8 @@ class WEBMDemuxer {
                     cue = cues[i];
                     if (typeof cue.time !== 'undefined' && cue.trackPositions && cue.trackPositions.length) {
                         times.push(Math.round(this._timestampBase + cue.time * 1e3 / timeScale));
-                        filepositions.push(cue.trackPositions[0].clusterPosition + this._seekHeaderOffset);
+                        let fileposition = cue.trackPositions[0].clusterPosition + this._seekHeaderOffset;
+                        filepositions.push(fileposition);
                     }
                 }
                 mediaInfo.hasKeyframesIndex = true;
@@ -352,7 +364,7 @@ class WEBMDemuxer {
     // function parseChunks(chunk: ArrayBuffer, byteStart: number): number;
     parseChunks(chunk, byteStart) {
         if (!this._onError || !this._onMediaInfo || !this._onTrackMetadata || !this._onDataAvailable) {
-            throw new IllegalStateException('Flv: onError & onMediaInfo & onTrackMetadata & onDataAvailable callback must be specified');
+            throw new IllegalStateException('Webm: onError & onMediaInfo & onTrackMetadata & onDataAvailable callback must be specified');
         }
 
         let offset = 0;
@@ -455,22 +467,23 @@ class WEBMDemuxer {
         }
 
         // cluster data should read completely for now not support random access in one cluster
-        let flag = true;
-        while (flag) {
+        this._dispatch = false;
+        let clusterCount = 0;
+        while (clusterCount >= 0) {
             result = _mkvParser.parseTopElement(chunk, offset, chunk.byteLength - offset);
-
             if (result.outerByteLength < 0 || offset + result.outerByteLength > chunk.byteLength) {
                 break;
             } else {
                 if (result.name === 'Cluster') {
                     this._parseClusterData(chunk, offset, byteStart);
                     this._lastClusterOffset = byteStart + offset + result.outerByteLength;
+                    clusterCount++;
                 }
                 offset += result.outerByteLength;
             }
         }
 
-        this._dispatch = true;
+        this._dispatch = clusterCount > 0;
         // dispatch parsed frames to consumer (typically, the remuxer)
         if (this._isInitialMetadataDispatched()) {
             if (this._dispatch && (this._audioTrack.length || this._videoTrack.length)) {

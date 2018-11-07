@@ -22,12 +22,7 @@ import EBMLWriter from './ebml-writer.js';
 import {SampleInfo, MediaSegmentInfo, MediaSegmentInfoList} from '../core/media-segment-info.js';
 import {IllegalStateException} from '../utils/exception.js';
 
-/**
- * Firefox:
- * webm file should be encoded with appropriate gop length
- * The point may be that one video cluster should have a key frame (IDR) as the first block
- * If not the file may play as well but may cause SourceBuffer become scattered
- */
+
 class WEBMRemuxer {
 
     constructor(config) {
@@ -191,17 +186,11 @@ class WEBMRemuxer {
         track.samples = [];
         track.length = 0;
         let clusters = samples;
-        let timecodes = [];
-        for (let i = 0; i < clusters.length; i++) {
-            timecodes.push(clusters[i].timecode);
-        }
-
 
         let segment = {
             type: 'audio',
             data: this._generateClustersData(clusters),
-            sampleCount: clusters.length,
-            timecodes: timecodes
+            sampleCount: clusters.length
         };
 
         this._onMediaSegment('audio', segment);
@@ -221,17 +210,11 @@ class WEBMRemuxer {
         track.samples = [];
         track.length = 0;
         let clusters = samples;
-        let timecodes = [];
-        for (let i = 0; i < clusters.length; i++) {
-            timecodes.push(clusters[i].timecode);
-        }
-
 
         this._onMediaSegment('video', {
             type: 'video',
             data: this._generateClustersData(clusters),
-            sampleCount: clusters.length,
-            timecodes: timecodes
+            sampleCount: clusters.length
         });
     }
 
@@ -242,15 +225,21 @@ class WEBMRemuxer {
         let clusterData = null;
         for (let i = 0, len = clusters.length; i < len; i++) {
             let blockSumSize = 0;
+            let block = null;
             for (let j = 0, bs = clusters[i].blocks.length; j < bs; j++) {
-                blockSumSize += clusters[i].blocks[j].rawData.byteLength;
+                block = clusters[i].blocks[j];
+                if (block.blockGroup) { //recreate simpleblock data
+                    block.rawData = EBMLWriter.getEBMLBytes('SimpleBlock', block.content);
+                }
+                blockSumSize += block.rawData.byteLength;
             }
             let tmpBuf = EBMLWriter.getEBMLBytes('Timecode', clusters[i].timecode);
             let clusterData = new ArrayBuffer(tmpBuf.byteLength + blockSumSize);
             EBMLWriter.copyArrBuf(tmpBuf, clusterData, 0, 0);
             for (let j = 0, bs = clusters[i].blocks.length, offset = tmpBuf.byteLength; j < bs; j++) {
-                EBMLWriter.copyArrBuf(clusters[i].blocks[j].rawData, clusterData, 0, offset);
-                offset += clusters[i].blocks[j].rawData.byteLength;
+                block = clusters[i].blocks[j];
+                EBMLWriter.copyArrBuf(block.rawData, clusterData, 0, offset);
+                offset += block.rawData.byteLength;
             }
             let subBuf = EBMLWriter.getEBMLBytes('Cluster', clusterData);
             if (length + subBuf.byteLength > contentArr.byteLength) {
@@ -280,15 +269,10 @@ class WEBMRemuxer {
         let trackData = metadata.rawDatas.track;
         let tracksData = EBMLWriter.getEBMLBytes('Tracks', trackData);
 
-        let infoData = EBMLWriter.getEBMLBytes('Info', [
-            {
-                name: 'TimecodeScale',
-                content: Math.round(1e9 / metadata.timescale)
-            },
-            {   name: 'Duration',
-                content: metadata.duration * 1e3 / metadata.timescale
-            }
-        ]);
+        let infoData = EBMLWriter.getEBMLBytes('Info', {
+            'TimecodeScale': Math.round(1e9 / metadata.timescale),
+            'Duration': metadata.duration * 1e3 / metadata.timescale
+        });
         /*let seekPos = 100;
         let seekHeadData = EBMLWriter.getEBMLBytes('SeekHead', [
             {
