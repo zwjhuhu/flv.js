@@ -59,7 +59,8 @@ class FlvPlayer {
             onvSeeking: this._onvSeeking.bind(this),
             onvCanPlay: this._onvCanPlay.bind(this),
             onvStalled: this._onvStalled.bind(this),
-            onvProgress: this._onvProgress.bind(this)
+            onvProgress: this._onvProgress.bind(this),
+            onvWaiting: this._onvWaiting.bind(this)
         };
 
         if (self.performance && self.performance.now) {
@@ -72,6 +73,8 @@ class FlvPlayer {
         this._requestSetTime = false;
         this._seekpointRecord = null;
         this._progressChecker = null;
+
+        this._waitingChecker = null;
 
         this._mediaDataSource = mediaDataSource;
         this._mediaElement = null;
@@ -99,6 +102,10 @@ class FlvPlayer {
         if (this._progressChecker != null) {
             window.clearInterval(this._progressChecker);
             this._progressChecker = null;
+        }
+        if (this._waitingChecker != null) {
+            window.clearTimeout(this._waitingChecker);
+            this._waitingChecker = null;
         }
         if (this._transmuxer) {
             this.unload();
@@ -141,6 +148,7 @@ class FlvPlayer {
         mediaElement.addEventListener('canplay', this.e.onvCanPlay);
         mediaElement.addEventListener('stalled', this.e.onvStalled);
         mediaElement.addEventListener('progress', this.e.onvProgress);
+        mediaElement.addEventListener('waiting', this.e.onvWaiting);
 
         this._msectl = new MSEController(this._config);
 
@@ -182,6 +190,7 @@ class FlvPlayer {
             this._mediaElement.removeEventListener('canplay', this.e.onvCanPlay);
             this._mediaElement.removeEventListener('stalled', this.e.onvStalled);
             this._mediaElement.removeEventListener('progress', this.e.onvProgress);
+            this._mediaElement.removeEventListener('waiting', this.e.onvWaiting);
             this._mediaElement = null;
         }
         if (this._msectl) {
@@ -226,6 +235,21 @@ class FlvPlayer {
                 let buffedTime = ms.info ? ms.info.endDts : 0;
                 if (buffedTime === 0) {
                     buffedTime = this._mediaElement.buffered.length ? this._mediaElement.buffered.end(0) : 0;
+                    if (this._mediaElement.buffered.length > 1) {
+                        let buffered = this._mediaElement.buffered;
+                        buffedTime = null;
+                        for (let i = 0; i < buffered.length; i++) {
+                            let from = buffered.start(i);
+                            let to = buffered.end(i);
+                            if (buffedTime === null) {
+                                buffedTime = to;
+                            } else if (from - buffedTime < 0.5) {
+                                buffedTime = to;
+                            }
+                        }
+
+                    }
+
                 }
                 if (buffedTime >= (currentTime + this._config.lazyLoadMaxDuration) * 1000) {
                     if (this._progressChecker == null) {
@@ -386,16 +410,19 @@ class FlvPlayer {
 
         let buffered = this._mediaElement.buffered;
         let currentTime = this._mediaElement.currentTime;
-        let currentRangeStart = 0;
-        let currentRangeEnd = 0;
+        let currentRangeStart = null;
+        let currentRangeEnd = null;
 
         for (let i = 0; i < buffered.length; i++) {
-            let start = buffered.start(i);
-            let end = buffered.end(i);
-            if (start <= currentTime && currentTime < end) {
-                currentRangeStart = start;
-                currentRangeEnd = end;
-                break;
+            let from = buffered.start(i);
+            let to = buffered.end(i);
+            if (currentRangeStart === null) {
+                currentRangeStart = from;
+            }
+            if (currentRangeEnd === null) {
+                currentRangeEnd = to;
+            } else if (from - currentRangeEnd < 0.5) {
+                currentRangeEnd = to;
             }
         }
 
@@ -427,25 +454,38 @@ class FlvPlayer {
         let buffered = this._mediaElement.buffered;
 
         let needResume = false;
-
+        //Firefox: sometime buffer scattered but in fact play will not puase in some case so give a gap allow 500ms
+        let beginTime = null;
+        let endTime = null;
         for (let i = 0; i < buffered.length; i++) {
             let from = buffered.start(i);
             let to = buffered.end(i);
-            if (currentTime >= from && currentTime < to) {
-                if (currentTime >= to - this._config.lazyLoadRecoverDuration) {
-                    needResume = true;
-                }
-                break;
+            if (beginTime === null) {
+                beginTime = from;
             }
+            if (endTime === null) {
+                endTime = to;
+            } else if (from - endTime < 0.5) {
+                endTime = to;
+            }
+        }
+        if (currentTime >= beginTime && currentTime < endTime) {
+            if (currentTime >= endTime - this._config.lazyLoadRecoverDuration) {
+                needResume = true;
+            }
+        }
+
+        if (buffered.length > 1) {
+            //Log.v(this.TAG, 'scattered buffer clean');
+            this._msectl._doCleanupSourceBuffer();
         }
 
         if (needResume) {
             window.clearInterval(this._progressChecker);
             this._progressChecker = null;
-            if (needResume) {
-                Log.v(this.TAG, 'Continue loading from paused position');
-                this._transmuxer.resume();
-            }
+            Log.v(this.TAG, 'Continue loading from paused position');
+            this._transmuxer.resume();
+
         }
     }
 
@@ -613,6 +653,44 @@ class FlvPlayer {
 
     _onvProgress(e) {
         this._checkAndResumeStuckPlayback();
+    }
+
+    _onvWaiting(e) {
+        let media = this._mediaElement;
+        if (media.readyState === 2) {// HAVE_CURRENT_DATA may stop becasuse time gap in buffer
+            if (this._waitingChecker === null) {
+                this._waitingChecker = window.setTimeout(this._checkWatingAndResumePlayback.bind(this), 300);
+            }
+        }
+    }
+
+    _checkWatingAndResumePlayback() {
+        let media = this._mediaElement;
+        if (media.readyState === 2) {
+            let curTime = media.currentTime;
+            let seconds = Math.floor(curTime);
+            let buffered = this._mediaElement.buffered;
+            let bufIndex = -1;
+            for (let i = 0; i < buffered.length; i++) {
+                let from = buffered.start(i);
+                let to = buffered.end(i);
+                if (seconds >= from && seconds < to) {
+                    bufIndex = i;
+                    break;
+                }
+            }
+            if (bufIndex < buffered.length - 1) {
+                let nextTime = buffered.start(bufIndex + 1);
+                if ((nextTime - curTime) < 5) {
+                    this._requestSetTime = true;
+                    media.currentTime = nextTime;
+                    Log.i(this.TAG, `play seem stuck at time: ${curTime} try skip to next buffered start time: ${nextTime}`);
+                }
+
+            }
+        }
+        window.clearTimeout(this._waitingChecker);
+        this._waitingChecker = null;
     }
 
 }
