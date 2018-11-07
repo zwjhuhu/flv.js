@@ -781,7 +781,6 @@ class MP4Demuxer {
                         // (Chrome/Edge use dts Firefox/Safari use pts) seek to video frame's pts or dts may cause video stuck
                         // becasuse no audio data could be rendered at this time so try sync seek time to the first audio's pts/dts
                         // here just save dts pts chunkOffset for search in sync proccess later
-                        // The case may cause by the file was encoded without gop setting
                         keyframesIndex.pts.push(ts + cts);
                         keyframesIndex.dts.push(ts);
                         keyframesIndex.filepositions.push(currentChunk.offset + sampleOffset);
@@ -971,18 +970,7 @@ class MP4Demuxer {
         if (mediaInfo.hasAudio) {
             mergedChunkMap = mergedChunkMap.concat(chunkMap.audio);
         }
-        mergedChunkMap = mergedChunkMap.sort(function (a, b) {
-            let ret = a.offset - b.offset;
-            if (ret === 0) {
-                //make sure video samples before audio samples
-                if (a.type === 'video') {
-                    ret = -1;
-                } else {
-                    ret = 1;
-                }
-            }
-            return ret;
-        });
+        mergedChunkMap = mergedChunkMap.sort((a, b) => a.offset - b.offset);
         //find media data end position
         if (mergedChunkMap.length > 0) {
             let lastChunk = mergedChunkMap[mergedChunkMap.length - 1];
