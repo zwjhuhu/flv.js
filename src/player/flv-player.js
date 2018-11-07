@@ -457,6 +457,7 @@ class FlvPlayer {
         //Firefox: sometime buffer scattered but in fact play will not puase in some case so give a gap allow 500ms
         let beginTime = null;
         let endTime = null;
+        let needClean = false;
         for (let i = 0; i < buffered.length; i++) {
             let from = buffered.start(i);
             let to = buffered.end(i);
@@ -468,6 +469,9 @@ class FlvPlayer {
             } else if (from - endTime < 0.5) {
                 endTime = to;
             }
+            if (to < currentTime) {
+                needClean = true;
+            }
         }
         if (currentTime >= beginTime && currentTime < endTime) {
             if (currentTime >= endTime - this._config.lazyLoadRecoverDuration) {
@@ -475,7 +479,7 @@ class FlvPlayer {
             }
         }
 
-        if (buffered.length > 1) {
+        if (needClean) {
             //Log.v(this.TAG, 'scattered buffer clean');
             this._msectl._doCleanupSourceBuffer();
         }
