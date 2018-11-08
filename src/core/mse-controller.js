@@ -49,6 +49,8 @@ class MSEController {
         this._mediaSourceObjectURL = null;
         this._mediaElement = null;
 
+        this._textTrack = null;
+
         this._isBufferFull = false;
         this._hasPendingEos = false;
 
@@ -70,7 +72,8 @@ class MSEController {
         };
         this._pendingSegments = {
             video: [],
-            audio: []
+            audio: [],
+            text: []
         };
         this._pendingRemoveRanges = {
             video: [],
@@ -166,6 +169,20 @@ class MSEController {
     }
 
     appendInitSegment(initSegment, deferred) {
+
+        if (initSegment.type === 'text') {
+            if (!this._textTrack) {
+                Log.v(this.TAG, 'create track element for subtitles');
+                let trackElem = window.document.createElement('track');
+                trackElem.kind = 'subtitles';
+                trackElem.srclang = 'und';
+                this._mediaElement.append(trackElem);
+                this._textTrack = this._mediaElement.textTracks.length ? this._mediaElement.textTracks[0] : null;
+                this._textTrack.mode = 'showing';
+            }
+            return;
+        }
+
         if (!this._mediaSource || this._mediaSource.readyState !== 'open') {
             // sourcebuffer creation requires mediaSource.readyState === 'open'
             // so we defer the sourcebuffer creation, until sourceopen event triggered
@@ -415,6 +432,10 @@ class MSEController {
         let pendingSegments = this._pendingSegments;
 
         for (let type in pendingSegments) {
+            if (type === 'text') {
+                this._addTextCues(this._pendingSegments[type]);
+                continue;
+            }
             if (!this._sourceBuffers[type] || this._sourceBuffers[type].updating) {
                 continue;
             }
@@ -532,6 +553,21 @@ class MSEController {
     _onSourceBufferError(e) {
         Log.e(this.TAG, `SourceBuffer Error: ${e}`);
         // this error might not always be fatal, just ignore it
+    }
+
+    _addTextCues(segments) {
+        if (!this._textTrack || !segments.length) {
+            return;
+        }
+        let cue = null;
+        for (let i = 0, len = segments.length; i < len; i++) {
+            for (let j = 0, tl = segments[i].data.length; j < tl; j++) {
+                cue = new VTTCue(segments[i].data[j].startTime, segments[i].data[j].endTime, segments[i].data[j].text);
+                this._textTrack.addCue(cue);
+            }
+
+        }
+        this._pendingSegments.text = [];
     }
 
 }

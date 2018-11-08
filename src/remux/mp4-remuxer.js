@@ -23,7 +23,6 @@ import Browser from '../utils/browser.js';
 import {SampleInfo, MediaSegmentInfo, MediaSegmentInfoList} from '../core/media-segment-info.js';
 import {IllegalStateException} from '../utils/exception.js';
 
-
 // Fragmented mp4 remuxer
 class MP4Remuxer {
 
@@ -44,6 +43,7 @@ class MP4Remuxer {
 
         this._audioMeta = null;
         this._videoMeta = null;
+        this._textMeta = null;
 
         this._audioSegmentInfoList = new MediaSegmentInfoList('audio');
         this._videoSegmentInfoList = new MediaSegmentInfoList('video');
@@ -72,6 +72,7 @@ class MP4Remuxer {
         this._dtsBaseInited = false;
         this._audioMeta = null;
         this._videoMeta = null;
+        this._textMeta = null;
         this._audioSegmentInfoList.clear();
         this._audioSegmentInfoList = null;
         this._videoSegmentInfoList.clear();
@@ -129,7 +130,7 @@ class MP4Remuxer {
         this._audioSegmentInfoList.clear();
     }
 
-    remux(audioTrack, videoTrack) {
+    remux(audioTrack, videoTrack, textTrack) {
         if (!this._onMediaSegment) {
             throw new IllegalStateException('MP4Remuxer: onMediaSegment callback must be specificed!');
         }
@@ -138,6 +139,7 @@ class MP4Remuxer {
         }
         this._remuxVideo(videoTrack);
         this._remuxAudio(audioTrack);
+        this._remuxText(textTrack);
     }
 
     _onTrackMetadataReceived(type, metadata) {
@@ -160,6 +162,11 @@ class MP4Remuxer {
         } else if (type === 'video') {
             this._videoMeta = metadata;
             metabox = MP4.generateInitSegment(metadata);
+        } else if (type === 'text' && window.VTTCue) {
+            this._textMeta = metadata;
+            codec = null;
+            container = 'vtt';
+            metabox = {buffer: null};
         } else {
             return;
         }
@@ -196,6 +203,7 @@ class MP4Remuxer {
     flushStashedSamples() {
         let videoSample = this._videoStashedLastSample;
         let audioSample = this._audioStashedLastSample;
+        let textSample = this._textStashedLastSample;
 
         let videoTrack = {
             type: 'video',
@@ -223,11 +231,26 @@ class MP4Remuxer {
             audioTrack.length = audioSample.length;
         }
 
+        let textTrack = {
+            type: 'text',
+            id: 3,
+            sequenceNumber: 0,
+            samples: [],
+            length: 0
+        };
+
+        if (textSample != null) {
+            textTrack.samples.push(audioSample);
+            textTrack.length = textSample.length;
+        }
+
         this._videoStashedLastSample = null;
         this._audioStashedLastSample = null;
+        this._textStashedLastSample = null;
 
         this._remuxVideo(videoTrack, true);
         this._remuxAudio(audioTrack, true);
+        this._remuxText(textTrack, true);
     }
 
     _remuxAudio(audioTrack, force) {
@@ -748,6 +771,198 @@ class MP4Remuxer {
         return result;
     }
 
+    _remuxText(textTrack, force) {
+
+        //if (this._textMeta == null) {
+            //return;
+        //}
+
+        let track = textTrack;
+        let samples = track.samples;
+        //let timescale = this._textMeta.timescale;
+
+        if (!samples || samples.length === 0) {
+            return;
+        }
+        if (samples.length === 1 && !force) {
+            // If [sample count in current batch] === 1 && (force != true)
+            // Ignore and keep in demuxer's queue
+            return;
+        }  // else if (force === true) do remux
+
+        let lastSample = null;
+
+        // Pop the lastSample and waiting for stash
+        if (samples.length > 1 && !samples[samples.length - 1].duration) {
+            lastSample = samples.pop();
+        }
+
+        // Insert [stashed lastSample in the previous batch] to the front
+        if (this._textStashedLastSample != null) {
+            let sample = this._textStashedLastSample;
+            this._textStashedLastSample = null;
+            samples.unshift(sample);
+        }
+
+        // Stash the lastSample of current batch, waiting for next batch
+        if (lastSample != null) {
+            this._textStashedLastSample = lastSample;
+        }
+
+
+        let texts = [];
+        let nextPts = null;
+        let lastPts = null;
+        for (let i = 0; i < samples.length; i++) {
+            let sample = samples[i];
+            let unit = sample.unit;
+            let duration = sample.duration;
+            lastPts = sample.pts;
+            if (!duration) {
+                if (i === samples.length - 1) {
+                    nextPts = lastSample ? lastSample.pts : 0;
+                } else {
+                    nextPts = samples[i + 1].pts;
+                }
+                duration = nextPts - sample.pts;
+                if (duration <= 0) {
+                    Log.w(this.TAG, `error duration at pts ${sample.pts} and next pts ${nextPts}`);
+                    duration = 1 * this._textMeta.timescale; //just give 1s
+                }
+            }
+            let text = this._convertDataToVttText(unit, sample.pts, duration, this._textMeta.timescale);
+            texts.push(text);
+        }
+        texts.sort((a, b) => {
+            let ret  = parseInt(a.layer) - parseInt(b.layer);
+            if (ret === 0) {
+                ret = a.startTime - b.startTime;
+            }
+            if (ret === 0) {
+                ret = a.endTime - b.endTime;
+            }
+            if (ret === 0) {
+                ret = parseInt(a.seq) - parseInt(b.seq);
+            }
+            return ret;
+        });
+        let info = {lastDts: lastPts, lastPts: lastPts};
+        let mergedText = [];
+        if (texts.length) {
+            let lastText = texts[0];
+            for (let i = 1; i < texts.length; i++) {
+                if (texts[i].layer === lastText.layer &&
+                    (texts[i].startTime.toString() === lastText.startTime.toString()
+                    || texts[i].endTime.toString() === lastText.endTime.toString())) {
+
+                    if (texts[i].startTime.toString() === lastText.startTime.toString()
+                        && texts[i].endTime.toString() === lastText.endTime.toString()) {
+                        mergedText.push(lastText);
+                        lastText = texts[i];
+                    } else {
+                        lastText.endTime = texts[i].endTime;
+                        lastText.text += texts[i].text;
+                    }
+                } else {
+                    mergedText.push(lastText);
+                    lastText = texts[i];
+                }
+
+            }
+            mergedText.push(lastText);
+        }
+
+        track.sequenceNumber++;
+        track.samples = [];
+        track.length = 0;
+
+        let segment = {
+            type: 'text',
+            data: mergedText,
+            sampleCount: mergedText.length,
+            info: info
+        };
+
+        this._onMediaSegment('text', segment);
+    }
+
+    _convertDataToVttText(data, startPts, duraiotn, timescale) {
+        // Format: Layer, Start, End, Style, Actor, MarginL, MarginR, MarginV, Effect, Text
+        // in .ass file like
+        // Dialogue: 0,0:22:41.88,0:22:43.04,Default,波波,0000,0000,0000,,你怎么在这里?
+        // in mkv file like
+        // 0,0,Default,波波,0000,0000,0000,,你怎么在这里?
+        let buf = data.buffer;
+        let str = _textTool.decode(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
+        let componets = str.split(',');
+        let seq = componets[0].trim();
+        let layer = componets[1].trim();
+        let style = componets[2].trim();
+        let actor = componets[3].trim();
+        let marginL = componets[4].trim();
+        let marginR = componets[5].trim();
+        let marginV = componets[6].trim();
+        let effect = componets[7].trim();
+        let text = '';
+        for (let i = 8; i < componets.length; i++) {
+            text += componets[i] ? componets[i] : ',';
+        }
+        text = _textTool.plainText(text.replace(/\n/gm, ' ').trim());
+        let result = {seq: seq, layer: layer};
+        result.startTime = Math.floor(startPts * 1000 / timescale) / 1000;
+        result.endTime = Math.floor((startPts + duraiotn) * 1000 / timescale) / 1000;
+        result.text = text;
+        return result;
+    }
 }
+
+const _textTool = (function () {
+    let _textDecoder = null;
+    if (typeof TextDecoder === 'function') {
+        _textDecoder =  new TextDecoder('utf-8');
+    }
+
+    return {
+        'decode': function (arrBuf) {
+            if (_textDecoder) {
+                return _textDecoder.decode(arrBuf);
+            }
+            let utf8Arr = new Uint8Array(arrBuf);
+            let utf16Str = '';
+
+            for (let i = 0; i < utf8Arr.length; i++) {
+                let one = utf8Arr[i].toString(2);
+                let v = one.match(/^1+?(?=0)/);
+
+                if (v && one.length == 8) {
+                    let bytesLength = v[0].length;
+                    let store = utf8Arr[i].toString(2).slice(7 - bytesLength);
+                    for (let st = 1; st < bytesLength; st++) {
+                        store += utf8Arr[st + i].toString(2).slice(2);
+                    }
+                    utf16Str += String.fromCharCode(parseInt(store, 2));
+                    i += bytesLength - 1;
+                } else {
+                    utf16Str += String.fromCharCode(utf8Arr[i]);
+                }
+            }
+            return utf16Str;
+        },
+        'plainText': function (text) {
+            if (!text) {
+                return '';
+            }
+
+            return text.split(/{.+?}/).reduce((ret, str) => {
+                if (str.length) {
+                    ret += str;
+                }
+                return ret;
+            }, '');
+
+        }
+    };
+})();
+
 
 export default MP4Remuxer;

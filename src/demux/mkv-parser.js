@@ -32,6 +32,7 @@ const _textDecorder = (function () {
         }
     };
 })();
+
 class EBMLReader {
     static decodeString(arrBuf) {
         return _textDecorder.decode(arrBuf);
@@ -341,7 +342,7 @@ class MKVParser {
 
         let tracksObject = {outerByteLength: tracksElement.outerByteLength, rawData: tracksElement.rawData};
         let tracks = [];
-        let trackTypeMapping = { 1: 'video', 2: 'audio', 3: 'complex', 0x10: 'logo', 0x11: 'subtitle', 0x12: 'buttons', 0x20: 'control' };
+        let trackTypeMapping = { 1: 'video', 2: 'audio', 3: 'complex', 0x10: 'logo', 0x11: 'subtitles', 0x12: 'buttons', 0x20: 'control' };
         for (let i in tracksElement.childElements) {
             let track = tracksElement.childElements[i];
             if (track.name != 'TrackEntry') continue;
@@ -502,6 +503,7 @@ class MKVParser {
                     let bgElem = element.childElements[i];
                     let block = null;
                     let keyframe = true;
+                    let duration = null;
                     for (let j = 0, elen = bgElem.childElements.length; j < elen; j++) {
                         if (bgElem.childElements[j].name === 'Block') { //may have more than one ? just process first one make it like simpleblock
                             let be = bgElem.childElements[j];
@@ -514,9 +516,14 @@ class MKVParser {
 
                         } else if (bgElem.childElements[j].name === 'ReferenceBlock') {
                             keyframe = false;
+                        } else if (bgElem.childElements[j].name === 'BlockDuration') {
+                            duration = bgElem.childElements[j].value;
                         }
                     }
                     block.keyframe = keyframe;
+                    if (duration) {
+                        block.duration = duration;
+                    }
                     sbes.push(block);
                 }
             }

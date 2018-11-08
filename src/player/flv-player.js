@@ -220,7 +220,7 @@ class FlvPlayer {
             // lazyLoad check
             if (this._config.lazyLoad && !this._config.isLive) {
                 let currentTime = this._mediaElement.currentTime;
-                if (ms.info.endDts >= (currentTime + this._config.lazyLoadMaxDuration) * 1000) {
+                if (ms.type !== 'text' && ms.info.endDts >= (currentTime + this._config.lazyLoadMaxDuration) * 1000) {
                     if (this._progressChecker == null) {
                         Log.v(this.TAG, 'Maximum buffering duration exceeded, suspend transmuxing task');
                         this._suspendTransmuxer();
@@ -340,6 +340,19 @@ class FlvPlayer {
         }
         this._statisticsInfo = this._fillStatisticsInfo(this._statisticsInfo);
         return Object.assign({}, this._statisticsInfo);
+    }
+
+    get subtitlesOn() {
+        if (this._msectl._textTrack) {
+            return this._msectl._textTrack.mode === 'showing';
+        }
+        return false;
+    }
+
+    set subtitlesOn(on) {
+        if (this._msectl._textTrack) {
+            this._msectl._textTrack.mode = on ? 'showing' : 'hidden';
+        }
     }
 
     _fillStatisticsInfo(statInfo) {

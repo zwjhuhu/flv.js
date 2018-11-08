@@ -48,6 +48,8 @@ class MKVDemuxer {
         this._defaultAudioScaledDuration = 0;
         this._defaultVideoScaledDuration = 0;
 
+        this._defaultTextTrack = null;
+
         this._lastVideoDts = 0;
         this._lastClusterOffset = -1;
 
@@ -59,6 +61,7 @@ class MKVDemuxer {
 
         this._hasAudio = false;
         this._hasVideo = false;
+        this._hasText = false;
 
         this._audioInitialMetadataDispatched = false;
         this._videoInitialMetadataDispatched = false;
@@ -89,6 +92,7 @@ class MKVDemuxer {
 
         this._videoTrack = { type: 'video', id: 1, sequenceNumber: 0, samples: [], length: 0 };
         this._audioTrack = { type: 'audio', id: 2, sequenceNumber: 0, samples: [], length: 0 };
+        this._textTrack = { type: 'text', id: 3, sequenceNumber: 0, samples: [], length: 0 };
 
         this._littleEndian = (function () {
             let buf = new ArrayBuffer(2);
@@ -104,6 +108,7 @@ class MKVDemuxer {
         this._videoMetadata = null;
         this._videoTrack = null;
         this._audioTrack = null;
+        this._textTrack = null;
 
         this._onError = null;
         this._onMediaInfo = null;
@@ -211,6 +216,11 @@ class MKVDemuxer {
                 this._defaultVideoTrack = track;
             } else if (track.audio && !this._defaultAudioTrack) {
                 this._defaultAudioTrack = track;
+            } else if (track.type === 'subtitles' && !this._defaultTextTrack) {
+                Log.v(this.TAG, `Found ${track.codecID} subtiles`);
+                if (track.codecID === 'S_TEXT/ASS') {
+                    this._defaultTextTrack = track;
+                }
             } else {
                 Log.w(this.TAG, `Found ${track.type} track, ignoring.`);
                 continue;
@@ -225,6 +235,7 @@ class MKVDemuxer {
         mediaInfo.duration = this._duration;
         mediaInfo.hasVideo = this._hasVideo = this._defaultVideoTrack !== null;
         mediaInfo.hasAudio = this._hasAudio = this._defaultAudioTrack !== null;
+        mediaInfo.hasText = this._hasText = this._defaultTextTrack !== null;
 
         let codecs = [];
         let id = 1;
@@ -340,11 +351,22 @@ class MKVDemuxer {
                 audioScaledDuration = Math.round(this._audioMetadata.refSampleDuration);
             }
             this._defaultAudioScaledDuration = audioScaledDuration;
-
         }
         mediaInfo.accurateDuration = mediaInfo.metadata.duration;
         if (codecs.length > 0) {
             mediaInfo.mimeType += '; codecs="' + codecs.join(',') + '"';
+        }
+
+        if (mediaInfo.hasText) {
+            let meta = {};
+            meta.type = 'text';
+            meta.codec = this._defaultTextTrack.codecID;
+            meta.config = this._defaultTextTrack.codecPrivate;
+            meta.duration = (this._duration / 1e3 * timeScale) | 0;
+            meta.timescale = timeScale;
+            this._onTrackMetadata('text', meta);
+            this._textInitialMetadataDispatched = true;
+            this._textMetadata = meta;
         }
 
         mediaInfo.bitrateMap = [];
@@ -538,8 +560,8 @@ class MKVDemuxer {
         this._dispatch = true;
         // dispatch parsed frames to consumer (typically, the remuxer)
         if (this._isInitialMetadataDispatched()) {
-            if (this._dispatch && (this._audioTrack.length || this._videoTrack.length)) {
-                this._onDataAvailable(this._audioTrack, this._videoTrack);
+            if (this._dispatch && (this._audioTrack.length || this._videoTrack.length || this._textTrack.length)) {
+                this._onDataAvailable(this._audioTrack, this._videoTrack, this._textTrack);
             }
         }
 
@@ -586,6 +608,7 @@ class MKVDemuxer {
 
         let audioTrackNumber = 0;
         let videoTrackNumber = 0;
+        let textTrackNumber = 0;
         let audioTimeBase = 0;
         let videoTimeBase = 0;
         if (this._defaultAudioTrack) {
@@ -596,6 +619,10 @@ class MKVDemuxer {
         if (this._defaultVideoTrack) {
             videoTimeBase = this._timestampBase / 1e3 * this._videoMetadata.timescale;
             videoTrackNumber = this._defaultVideoTrack.number;
+        }
+
+        if (this._defaultTextTrack) {
+            textTrackNumber = this._defaultTextTrack.number;
         }
 
         let audioScaledDuration = this._defaultAudioScaledDuration;
@@ -625,10 +652,19 @@ class MKVDemuxer {
             } else if (block.trackNumber === videoTrackNumber) {
                 let scaledDuration = videoScaledDuration;
                 let timeBase = videoTimeBase;
-                block.index = videoIndex ++;
+                block.index = videoIndex++;
                 block.pts = timeBase + ts;
                 videoBlocks.push(block);
                 this._recordRealtimeBitrate((timeBase + ts) / recordTimeScale, block.framesDataLength);
+            } else if (block.trackNumber === textTrackNumber) {
+                track = this._textTrack;
+                let frameOffset = offset + block.framesDataLocation;
+                let textData = new Uint8Array(chunk, frameOffset, frames[0].size);
+                let timeBase = audioTimeBase ? audioTimeBase : videoTimeBase;
+                let pts = timeBase + ts;
+                let textSample = { unit: textData, length: textData.byteLength, pts: pts, duration: block.duration};
+                track.samples.push(textSample);
+                track.length += textSample.length;
             }
         }
 
