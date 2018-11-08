@@ -661,10 +661,13 @@ class MKVDemuxer {
 
         blocks[0].dts = beginDts;
         for (let i = 1; i < len; i++) {
-            blocks[i].dts = blocks[i - 1].dts + blocks[i - 1].duration;
-            if (!blocks[i].duration) {
-                blocks[i].duration = defaultDuration;
+            if (!blocks[i - 1].duration) {
+                blocks[i - 1].duration = defaultDuration;
             }
+            blocks[i].dts = blocks[i - 1].dts + blocks[i - 1].duration;
+        }
+        if (!blocks[blocks.length - 1].duration) {
+            blocks[blocks.length - 1].duration = defaultDuration;
         }
 
         for (let i = 0; i < len; i++) {
