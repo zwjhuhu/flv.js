@@ -82,20 +82,10 @@ class MKVDemuxer {
             fps_den: 1000
         };
 
-        this._flvSoundRateTable = [5500, 11025, 22050, 44100, 48000];
-
         this._mpegSamplingRates = [
             96000, 88200, 64000, 48000, 44100, 32000,
             24000, 22050, 16000, 12000, 11025, 8000, 7350
         ];
-
-        this._mpegAudioV10SampleRateTable = [44100, 48000, 32000, 0];
-        this._mpegAudioV20SampleRateTable = [22050, 24000, 16000, 0];
-        this._mpegAudioV25SampleRateTable = [11025, 12000, 8000, 0];
-
-        this._mpegAudioL1BitRateTable = [0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, -1];
-        this._mpegAudioL2BitRateTable = [0, 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, -1];
-        this._mpegAudioL3BitRateTable = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, -1];
 
         this._videoTrack = { type: 'video', id: 1, sequenceNumber: 0, samples: [], length: 0 };
         this._audioTrack = { type: 'audio', id: 2, sequenceNumber: 0, samples: [], length: 0 };
@@ -236,13 +226,9 @@ class MKVDemuxer {
         mediaInfo.hasVideo = this._hasVideo = this._defaultVideoTrack !== null;
         mediaInfo.hasAudio = this._hasAudio = this._defaultAudioTrack !== null;
 
-        let bitrateMapTrack = {};
-        let maxDuration = 0;
-        let chunkMap = {};
-        let sampleTsMap = {};
         let codecs = [];
         let id = 1;
-        let accurateDuration = [0];
+
         let timeScale = 1e9 / info.timecodeScale;//store in n nanoseconds
         if (mediaInfo.hasVideo) {
             let avcC = this._parseAvcCData(this._defaultVideoTrack.codecPrivate);
@@ -307,13 +293,22 @@ class MKVDemuxer {
                     Log.w('video defaultDuration not found just use 24fps');
                     this._defaultVideoTrack.defaultDuration = Math.round(1e9 / 24);
                 }
-                meta.refSampleDuration = Math.round(this._defaultAudioTrack.defaultDuration / 1e9 * meta.timescale);
+                meta.refSampleDuration = Math.round(this._defaultVideoTrack.defaultDuration / 1e9 * meta.timescale);
             }
             meta.sarRatio = sps.sar_ratio;
             meta.type = 'video';
             this._onTrackMetadata('video', meta);
             this._videoInitialMetadataDispatched = true;
             this._videoMetadata = meta;
+
+            let videoScaledDuration = this._defaultVideoTrack.defaultDuration;
+            if (videoScaledDuration) {
+                videoScaledDuration = Math.round(this._defaultVideoTrack.defaultDuration / 1e9 * this._videoMetadata.timescale);
+            } else {
+                videoScaledDuration = Math.round(this._videoMetadata.refSampleDuration);
+            }
+            this._defaultVideoScaledDuration = videoScaledDuration;
+
         }
         if (mediaInfo.hasAudio) {
             let specDesc = this._parseEsdsData(this._defaultAudioTrack.codecPrivate);
@@ -337,6 +332,15 @@ class MKVDemuxer {
             this._onTrackMetadata('audio', meta);
             this._audioInitialMetadataDispatched = true;
             this._audioMetadata = meta;
+
+            let audioScaledDuration = this._defaultAudioTrack.defaultDuration;
+            if (audioScaledDuration) {
+                audioScaledDuration = Math.round(this._defaultAudioTrack.defaultDuration / 1e9 * this._audioMetadata.timescale);
+            } else {
+                audioScaledDuration = Math.round(this._audioMetadata.refSampleDuration);
+            }
+            this._defaultAudioScaledDuration = audioScaledDuration;
+
         }
         mediaInfo.accurateDuration = mediaInfo.metadata.duration;
         if (codecs.length > 0) {
@@ -580,30 +584,22 @@ class MKVDemuxer {
         let blocks = cluster.blocks;
         let track = null;
 
+        let audioTrackNumber = 0;
+        let videoTrackNumber = 0;
+        let audioTimeBase = 0;
+        let videoTimeBase = 0;
+        if (this._defaultAudioTrack) {
+            audioTimeBase = this._timestampBase / 1e3 * this._audioMetadata.timescale;
+            audioTrackNumber = this._defaultAudioTrack.number;
+        }
+
+        if (this._defaultVideoTrack) {
+            videoTimeBase = this._timestampBase / 1e3 * this._videoMetadata.timescale;
+            videoTrackNumber = this._defaultVideoTrack.number;
+        }
+
         let audioScaledDuration = this._defaultAudioScaledDuration;
-        if (!audioScaledDuration) {
-            audioScaledDuration = this._defaultAudioTrack.defaultDuration;
-            if (audioScaledDuration) {
-                audioScaledDuration = Math.round(this._defaultAudioTrack.defaultDuration / 1e9 * this._audioMetadata.timescale);
-            } else {
-                audioScaledDuration = Math.round(this._audioMetadata.refSampleDuration);
-            }
-            this._defaultAudioScaledDuration = audioScaledDuration;
-        }
-
         let videoScaledDuration = this._defaultVideoScaledDuration;
-        if (!videoScaledDuration) {
-            videoScaledDuration = this._defaultVideoTrack.defaultDuration;
-            if (videoScaledDuration) {
-                videoScaledDuration = Math.round(this._defaultVideoTrack.defaultDuration / 1e9 * this._videoMetadata.timescale);
-            } else {
-                videoScaledDuration = Math.round(this._videoMetadata.refSampleDuration);
-            }
-            this._defaultVideoScaledDuration = videoScaledDuration;
-        }
-
-        let audioTimeBase = this._timestampBase / 1e3 * this._audioMetadata.timescale;
-        let videoTimeBase = this._timestampBase / 1e3 * this._videoMetadata.timescale;
 
         let videoBlocks = [];
         let videoIndex = 0;
@@ -612,7 +608,7 @@ class MKVDemuxer {
             block = blocks[i];
             let ts = cluster.timecode + block.timecode;
             let frames = block.frames;
-            if (block.trackNumber === this._defaultAudioTrack.number) {
+            if (block.trackNumber === audioTrackNumber) {
                 track = this._audioTrack;
                 let scaledDuration = audioScaledDuration;
                 let timeBase = audioTimeBase;
@@ -626,7 +622,7 @@ class MKVDemuxer {
                     track.length += aacSample.length;
                 }
                 this._recordRealtimeBitrate((timeBase + ts) / recordTimeScale, block.framesDataLength);
-            } else if (block.trackNumber === this._defaultVideoTrack.number) {
+            } else if (block.trackNumber === videoTrackNumber) {
                 let scaledDuration = videoScaledDuration;
                 let timeBase = videoTimeBase;
                 block.index = videoIndex ++;
@@ -665,10 +661,13 @@ class MKVDemuxer {
 
         blocks[0].dts = beginDts;
         for (let i = 1; i < len; i++) {
-            blocks[i].dts = blocks[i - 1].dts + blocks[i - 1].duration;
-            if (!blocks[i].duration) {
-                blocks[i].duration = defaultDuration;
+            if (!blocks[i - 1].duration) {
+                blocks[i - 1].duration = defaultDuration;
             }
+            blocks[i].dts = blocks[i - 1].dts + blocks[i - 1].duration;
+        }
+        if (!blocks[blocks.length - 1].duration) {
+            blocks[blocks.length - 1].duration = defaultDuration;
         }
 
         for (let i = 0; i < len; i++) {

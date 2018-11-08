@@ -105,6 +105,7 @@ class EBMLElement {
             this.readId();
             this.nextOuterByteLength = this.readLength() + this.readPos - this.outerByteLength;
         }
+        this.rawData = this.dataView.buffer.slice(offset, offset + this.outerByteLength);
     }
 
     destroy() {
@@ -242,11 +243,11 @@ class MKVParser {
     isMatroska(buffer, offset, length) {
         let firstElement = new EBMLElement(buffer, offset, length);
         if (firstElement.name != 'EBML') {
-            Log.v('first element in file is not "EBML" ', false);
+            Log.v(this.TAG, 'first element in file is not "EBML"');
             return false;
         }
         if (!firstElement.childElements) {
-            Log.v('EBML header is unusually large.');
+            Log.v(this.TAG, 'EBML header is unusually large.');
             return false;
         }
         for (let i in firstElement.childElements) {
@@ -256,7 +257,7 @@ class MKVParser {
                 }
             }
         }
-        Log.v('Could not find DocType', false);
+        Log.v(this.TAG, 'Could not find DocType "matroska"');
         return false;
     }
 
@@ -266,7 +267,7 @@ class MKVParser {
     }
 
     parseEBML(buffer, offset, length) {
-        return this.parseTopElement(buffer, offset, length);
+        return new EBMLElement(buffer, offset, length, false);
     }
 
     parseSeekHead(buffer, offset, length) {
@@ -320,6 +321,7 @@ class MKVParser {
         ret = infoElement.getChildWithName('Title');
         if (ret)
             info.title = ret.value;
+        info.rawData = infoElement.rawData;
         infoObject.info = info;
         return infoObject;
     }
@@ -337,7 +339,7 @@ class MKVParser {
         if (tracksElement.name != 'Tracks')
             throw new Error('SeekHead entry for Tracks does not point to an Tracks element.');
 
-        let tracksObject = {outerByteLength: tracksElement.outerByteLength};
+        let tracksObject = {outerByteLength: tracksElement.outerByteLength, rawData: tracksElement.rawData};
         let tracks = [];
         let trackTypeMapping = { 1: 'video', 2: 'audio', 3: 'complex', 0x10: 'logo', 0x11: 'subtitle', 0x12: 'buttons', 0x20: 'control' };
         for (let i in tracksElement.childElements) {
@@ -424,6 +426,7 @@ class MKVParser {
             }
             a = track.getChildWithName('ContentEncodings');
             if (a) t.contentEncoding = true;
+            t.rawData = track.rawData;
             tracks.push(t);
         }
         tracksObject.tracks = tracks;
@@ -490,12 +493,35 @@ class MKVParser {
                 if (element.childElements[i].name == 'SimpleBlock') {
                     let sbe = element.childElements[i];
                     let block = this._readSimpleBlock(sbe.value);
+                    block.content = sbe.value;
+                    block.rawData = sbe.rawData;
                     block.framesDataLocation = element.headerByteLength + sbe.relativeOffset + sbe.headerByteLength + block.framesDataOffset;
+                    sbes.push(block);
+                } else if (element.childElements[i].name == 'BlockGroup') {
+
+                    let bgElem = element.childElements[i];
+                    let block = null;
+                    let keyframe = true;
+                    for (let j = 0, elen = bgElem.childElements.length; j < elen; j++) {
+                        if (bgElem.childElements[j].name === 'Block') { //may have more than one ? just process first one make it like simpleblock
+                            let be = bgElem.childElements[j];
+                            block = this._readSimpleBlock(be.value); //Block structure similar to SimpleBlock just without keyframe flag
+                            block.blockGroup = true;
+                            block.content = be.value;
+                            block.rawData = null;//leave rawData null have to create later manually if neccssary;
+                            block.framesDataLocation = element.headerByteLength + bgElem.relativeOffset + bgElem.headerByteLength
+                                + be.relativeOffset + be.headerByteLength + block.framesDataOffset;
+
+                        } else if (bgElem.childElements[j].name === 'ReferenceBlock') {
+                            keyframe = false;
+                        }
+                    }
+                    block.keyframe = keyframe;
                     sbes.push(block);
                 }
             }
         }
-        let cluster = {outerByteLength: element.outerByteLength};
+        let cluster = {outerByteLength: element.outerByteLength, rawData: element.rawData};
         cluster.timecode = clusterTimecode;
         cluster.blocks = sbes;
         return cluster;
