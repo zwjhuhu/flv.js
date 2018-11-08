@@ -203,7 +203,6 @@ class MP4Remuxer {
     flushStashedSamples() {
         let videoSample = this._videoStashedLastSample;
         let audioSample = this._audioStashedLastSample;
-        let textSample = this._textStashedLastSample;
 
         let videoTrack = {
             type: 'video',
@@ -231,26 +230,11 @@ class MP4Remuxer {
             audioTrack.length = audioSample.length;
         }
 
-        let textTrack = {
-            type: 'text',
-            id: 3,
-            sequenceNumber: 0,
-            samples: [],
-            length: 0
-        };
-
-        if (textSample != null) {
-            textTrack.samples.push(audioSample);
-            textTrack.length = textSample.length;
-        }
-
         this._videoStashedLastSample = null;
         this._audioStashedLastSample = null;
-        this._textStashedLastSample = null;
 
         this._remuxVideo(videoTrack, true);
         this._remuxAudio(audioTrack, true);
-        this._remuxText(textTrack, true);
     }
 
     _remuxAudio(audioTrack, force) {
@@ -771,44 +755,19 @@ class MP4Remuxer {
         return result;
     }
 
-    _remuxText(textTrack, force) {
+    _remuxText(textTrack) {
 
-        //if (this._textMeta == null) {
-            //return;
-        //}
+        if (this._textMeta == null) {
+            return;
+        }
 
         let track = textTrack;
         let samples = track.samples;
-        //let timescale = this._textMeta.timescale;
+        let timescale = this._textMeta.timescale;
 
         if (!samples || samples.length === 0) {
             return;
         }
-        if (samples.length === 1 && !force) {
-            // If [sample count in current batch] === 1 && (force != true)
-            // Ignore and keep in demuxer's queue
-            return;
-        }  // else if (force === true) do remux
-
-        let lastSample = null;
-
-        // Pop the lastSample and waiting for stash
-        if (samples.length > 1 && !samples[samples.length - 1].duration) {
-            lastSample = samples.pop();
-        }
-
-        // Insert [stashed lastSample in the previous batch] to the front
-        if (this._textStashedLastSample != null) {
-            let sample = this._textStashedLastSample;
-            this._textStashedLastSample = null;
-            samples.unshift(sample);
-        }
-
-        // Stash the lastSample of current batch, waiting for next batch
-        if (lastSample != null) {
-            this._textStashedLastSample = lastSample;
-        }
-
 
         let texts = [];
         let nextPts = null;
@@ -819,20 +778,14 @@ class MP4Remuxer {
             let duration = sample.duration;
             lastPts = sample.pts;
             if (!duration) {
-                if (i === samples.length - 1) {
-                    nextPts = lastSample ? lastSample.pts : 0;
-                } else {
-                    nextPts = samples[i + 1].pts;
-                }
-                duration = nextPts - sample.pts;
-                if (duration <= 0) {
-                    Log.w(this.TAG, `error duration at pts ${sample.pts} and next pts ${nextPts}`);
-                    duration = 1 * this._textMeta.timescale; //just give 1s
-                }
+                continue; //just ignore
             }
-            let text = this._convertDataToVttText(unit, sample.pts, duration, this._textMeta.timescale);
-            texts.push(text);
+            let text = this._convertDataToVttText(unit, sample.pts, duration, timescale);
+            if (text.text) {
+                texts.push(text);
+            }
         }
+
         texts.sort((a, b) => {
             let ret  = parseInt(a.layer) - parseInt(b.layer);
             if (ret === 0) {
@@ -846,6 +799,7 @@ class MP4Remuxer {
             }
             return ret;
         });
+
         let info = {lastDts: lastPts, lastPts: lastPts};
         let mergedText = [];
         if (texts.length) {
@@ -903,9 +857,11 @@ class MP4Remuxer {
         let marginR = componets[5].trim();
         let marginV = componets[6].trim();
         let effect = componets[7].trim();
-        let text = '';
-        for (let i = 8; i < componets.length; i++) {
-            text += componets[i] ? componets[i] : ',';
+        let text = componets[8].trim();
+        if (componets.length > 9) {
+            for (let i = 8; i < componets.length; i++) {
+                text += componets[i] ? componets[i] : ',';
+            }
         }
         text = _textTool.plainText(text.replace(/\n/gm, ' ').trim());
         let result = {seq: seq, layer: layer};
