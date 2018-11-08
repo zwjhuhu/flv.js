@@ -20,11 +20,14 @@ class EBMLWriter {
         return zeros;
     }
 
-    static findByteLength(b) {
+    static findByteLength(b) {// max support 8 byte length
+        let len = 0;
         if (b === 0) {
             return 1;
+        } else if (b > 0xffffffff) {
+            len = 4;
+            b = Math.floor(b / 0x100000000);
         }
-        let len = 0;
         while (b) {
             b >>= 8;
             len++;
@@ -43,32 +46,27 @@ class EBMLWriter {
         return count;
     }
 
-    static wirteUintToBuf(num) {
-        let temp = num;
-        let bytes = [];
-        let length = 0;
-        while (temp) {
-            bytes.unshift(temp % 256);
-            temp >>= 8;
+    static writeUintToBuf(num) {
+        let str = num.toString(16);
+        let length = str.length;
+        if (length % 2) {
             length++;
+            str = '0' + str;
         }
-        if (length === 0) {
-            length = 1;
-            bytes = [0];
-        }
+        length /= 2;
         let arr = new Uint8Array(length);
-        for (let i = 0; i < length; i++) {
-            arr[i] = bytes[i];
+        for (let i = length - 1; i >= 0; i--) {
+            arr[i] = parseInt('0x' + str.charAt(2 * i) + str.charAt(2 * i + 1));
         }
         return arr.buffer;
     }
 
-    static wirteIntToBuf(num) {
+    static writeIntToBuf(num) {
         let unum = num;
         if (num < 0) {
             unum = -num;
         }
-        let temp = EBMLWriter.wirteUintToBuf(num);
+        let temp = EBMLWriter.writeUintToBuf(unum);
         let length = temp.byteLength;
         let arr = null;
         if (num >= 0) {
@@ -196,11 +194,11 @@ class EBMLWriter {
                 break;
             case 'uinteger':
             case 'ebmlid':
-                contentArr = EBMLWriter.wirteUintToBuf(content);
+                contentArr = EBMLWriter.writeUintToBuf(content);
                 length = contentArr.byteLength;
                 break;
             case 'integer':
-                contentArr = EBMLWriter.wirteIntToBuf(content);
+                contentArr = EBMLWriter.writeIntToBuf(content);
                 length = contentArr.byteLength;
                 break;
             case 'float':
@@ -275,7 +273,7 @@ class EBMLWriter {
             if (newTrackNumber <= 0) {
                 Log.e(_TAG, `block trackNumber ${newTrackNumber} invalid`);
             } else {
-                trackNumberBuf = EBMLWriter.wirteUintToBuf(newTrackNumber);
+                trackNumberBuf = EBMLWriter.writeUintToBuf(newTrackNumber);
                 let newLen = trackNumberBuf.byteLength;
                 diff = newLen - oldLen;
                 block.trackNumber = newTrackNumber;
