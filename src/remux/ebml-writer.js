@@ -20,7 +20,7 @@ class EBMLWriter {
         return zeros;
     }
 
-    static findByteLength(b) {// max support 8 byte length
+    static findByteLength(b) { // max support 8 byte length
         let len = 0;
         if (b === 0) {
             return 1;
@@ -161,7 +161,7 @@ class EBMLWriter {
                 if (typeof content === 'object' && !Array.isArray(content)) {
                     let temp = [];
                     for (let k in content) {
-                        temp.push({name: k, content: content[k]});
+                        temp.push({ name: k, content: content[k] });
                     }
                     content = temp;
                 }
@@ -303,6 +303,97 @@ class EBMLWriter {
 
         block.framesDataOffset += diff;
         return block;
+    }
+
+    //no use just a long number version use string num more than 2^53
+    static decToHex(num) {
+
+        const mer = arr => {
+            for (let i = 0, len = arr.length; i < len; i++) {
+                let n = arr[i];
+                if (!n) {
+                    arr[i] = 0;
+                    continue;
+                } else if (n % 2) {
+                    arr[i] = 1;
+                } else {
+                    arr[i] = 0;
+                }
+                arr[i + 1] = arr[i + 1] ? (arr[i + 1] + Math.floor(n / 2)) : Math.floor(n / 2);
+            }
+            if (arr[arr.length - 1] === 0) {
+                arr.pop();
+            }
+        };
+
+        const sum = (a, b) => {
+            let arr = [];
+            let i = 0, j = 0;
+            for (; i < a.length && j < b.length; i++, j++) {
+                arr[i] = a[i] + b[j];
+            }
+            for (; i < a.length; i++) {
+                arr[i] = a[i];
+            }
+            for (; j < b.length; j++) {
+                arr[j] = b[j];
+            }
+            mer(arr);
+            return arr;
+        };
+
+        const mut = (a, b) => {
+            let arr = [];
+            let i = 0, j = 0;
+            for (let i = 0; i < a.length; i++) {
+                for (let j = 0; j < b.length; j++) {
+                    let n = a[i] * b[j];
+                    let index = i + j;
+                    if (n > 0) {
+                        if (arr[index]) {
+                            arr[index] += 1;
+                        } else {
+                            arr[index] = 1;
+                        }
+                    }
+                }
+            }
+            mer(arr);
+            return arr;
+        };
+
+        let ret = [];
+        let ten = [0, 1, 0, 1];
+        let digits = [[0], [1], [0, 1], [1, 1, 0], [0, 0, 1], [1, 0, 1], [0, 1, 1], [1, 1, 1], [0, 0, 0, 1], [1, 0, 0, 1]];
+        num = num + '';
+        let nums = num.split('');
+        let temp = null;
+        while (nums.length) {
+            if (!temp) {
+                temp = [1];
+            } else {
+                temp = mut(temp, ten);
+            }
+            let n = parseInt(nums.pop());
+            if (n < 1) {
+                continue;
+            }
+            let part = mut(digits[n], temp);
+            ret = sum(ret, part);
+        }
+        while (ret.length % 8) {
+            ret.push(0);
+        }
+        ret.reverse();
+        let hex = new Uint8Array(ret.length / 8);
+        for (let i = 0, hc = null; i < ret.length; i += 8) {
+            hc = 0;
+            for (let j = 0; j < 8; j++) {
+                hc += Math.pow(2, 7 - j) * ret[i + j];
+            }
+            hex[i / 8] = hc;
+        }
+        return hex;
     }
 }
 
