@@ -857,10 +857,10 @@ class MP4Remuxer {
         let marginR = componets[5].trim();
         let marginV = componets[6].trim();
         let effect = componets[7].trim();
-        let text = componets[8].trim();
+        let text = componets[8];
         if (componets.length > 9) {
-            for (let i = 8; i < componets.length; i++) {
-                text += componets[i] ? componets[i] : ',';
+            for (let i = 9; i < componets.length; i++) {
+                text += ',' + componets[i];
             }
         }
         text = _textTool.plainText(text.replace(/\n/gm, ' ').trim());
