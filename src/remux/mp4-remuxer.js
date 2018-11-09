@@ -248,7 +248,7 @@ class MP4Remuxer {
         let firstDts = -1, lastDts = -1, lastPts = -1;
         let refSampleDuration = this._audioMeta.refSampleDuration;
 
-        let mpegRawTrack = this._audioMeta.codec === 'mp3' && this._mp3UseMpegAudio;
+        let mpegRawTrack = (this._audioMeta.codec === 'mp3' && this._mp3UseMpegAudio);
         let firstSegmentAfterSeek = this._dtsBaseInited && this._audioNextDts === undefined;
 
         let insertPrefixSilentFrame = false;
@@ -309,7 +309,7 @@ class MP4Remuxer {
             if (this._audioSegmentInfoList.isEmpty()) {
                 dtsCorrection = 0;
                 if (this._fillSilentAfterSeek && !this._videoSegmentInfoList.isEmpty()) {
-                    if (this._audioMeta.originalCodec !== 'mp3') {
+                    if (this._audioMeta.originalCodec !== 'mp3' && this._audioMeta.originalCodec !== 'flac') {
                         insertPrefixSilentFrame = true;
                     }
                 }
@@ -384,7 +384,8 @@ class MP4Remuxer {
             let silentFrames = null;
 
             // Silent frame generation, if large timestamp gap detected && config.fixAudioTimestampGap
-            if (sampleDuration > refSampleDuration * 1.5 && this._audioMeta.codec !== 'mp3' && this._fillAudioTimestampGap && !Browser.safari) {
+            if (sampleDuration > refSampleDuration * 1.5 && this._audioMeta.codec !== 'mp3' && this._audioMeta.codec !== 'flac'
+                && this._fillAudioTimestampGap && !Browser.safari) {
                 // We need to insert silent frames to fill timestamp gap
                 needFillSilentFrames = true;
                 let delta = Math.abs(sampleDuration - refSampleDuration);
