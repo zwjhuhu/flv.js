@@ -50,6 +50,7 @@ class MSEController {
         this._mediaElement = null;
 
         this._textTrack = null;
+        this._textCuesList = [];
 
         this._isBufferFull = false;
         this._hasPendingEos = false;
@@ -309,6 +310,9 @@ class MSEController {
                 }
             }
         }
+
+        //remove text cues;
+        this._removeTextCues();
     }
 
     endOfStream() {
@@ -564,10 +568,25 @@ class MSEController {
             for (let j = 0, tl = segments[i].data.length; j < tl; j++) {
                 cue = new VTTCue(segments[i].data[j].startTime, segments[i].data[j].endTime, segments[i].data[j].text);
                 this._textTrack.addCue(cue);
+                this._textCuesList.push(cue);
             }
-
         }
         this._pendingSegments.text = [];
+    }
+
+    _removeTextCues() {
+
+        if (!this._textTrack || !this._textCuesList.length) {
+            return;
+        }
+        for (let i = 0, len = this._textCuesList.length; i < len; i++) {
+            try {
+                this._textTrack.removeCue(this._textCuesList[i]);
+            } catch (e) {
+                //if cue not exist just ignore
+            }
+        }
+        this._textCuesList.splice(0, this._textCuesList.length);
     }
 
 }
