@@ -21,7 +21,6 @@ import MediaInfo from '../core/media-info.js';
 import MKVParser from './mkv-parser.js';
 import { IllegalStateException } from '../utils/exception.js';
 
-
 const _mkvParser = new MKVParser();
 
 class MKVDemuxer {
@@ -224,11 +223,23 @@ class MKVDemuxer {
         };
         mediaInfo.duration = this._duration;
         mediaInfo.hasVideo = this._hasVideo = this._defaultVideoTrack !== null;
+        if (this._defaultVideoTrack.codecID !== 'V_MPEG4/ISO/AVC') {
+            throw new IllegalStateException(`${this.TAG} unsupport video codec ${this._defaultVideoTrack.codecID}`);
+        }
         mediaInfo.hasAudio = this._hasAudio = this._defaultAudioTrack !== null;
-
+        if (this._defaultAudioTrack.codecID !== 'A_AAC') {
+            if (this._defaultAudioTrack.codecID === 'A_FLAC' && window.MediaSource.isTypeSupported('audio/mp4; codecs="flac"')) {
+                Log.i(this.TAG, 'find flac audio try to use');
+            } else {
+                Log.w(this.TAG, `unsupport audio codec ${this._defaultAudioTrack.codecID} audio will be disabled`);
+                mediaInfo.hasAudio = false;
+                this._defaultAudioTrack = null;
+            }
+        }
         let codecs = [];
         let id = 1;
 
+        // !! if video track id bigger than audio track id will crash
         let timeScale = 1e9 / info.timecodeScale;//store in n nanoseconds
         if (mediaInfo.hasVideo) {
             let avcC = this._parseAvcCData(this._defaultVideoTrack.codecPrivate);
@@ -311,20 +322,34 @@ class MKVDemuxer {
 
         }
         if (mediaInfo.hasAudio) {
-            let specDesc = this._parseEsdsData(this._defaultAudioTrack.codecPrivate);
-            mediaInfo.audioCodec = 'mp4a.40.' + specDesc.originalAudioObjectType;
-            codecs.push(mediaInfo.audioCodec);
-            mediaInfo.audioSampleRate = this._mpegSamplingRates[specDesc.samplingIndex];
-            mediaInfo.audioChannelCount = specDesc.channelConfig;
+            let audioConfig = null;
+            let bitDepth = 16;
+            if (this._defaultAudioTrack.codecID === 'A_AAC') {
+                let specDesc = this._parseEsdsData(this._defaultAudioTrack.codecPrivate);
+                mediaInfo.audioCodec = 'mp4a.40.' + specDesc.originalAudioObjectType;
+                codecs.push(mediaInfo.audioCodec);
+                mediaInfo.audioSampleRate = this._mpegSamplingRates[specDesc.samplingIndex];
+                mediaInfo.audioChannelCount = specDesc.channelConfig;
+                audioConfig = specDesc.data;
+            } else {
+                let specDesc = this._parseFlacConfigData(this._defaultAudioTrack.codecPrivate);
+                mediaInfo.audioCodec = 'flac';
+                codecs.push(mediaInfo.audioCodec);
+                mediaInfo.audioSampleRate = specDesc.sampleRate;
+                mediaInfo.audioChannelCount = specDesc.channelCount;
+                audioConfig = specDesc.metadataBlocksData;
+                bitDepth = specDesc.bitDepth;
+            }
 
             //mediaInfo.audioDataRate = size / mediaInfo.metadata.duration * 8;
             let meta = {};
             meta.type = 'audio';
             meta.audioSampleRate = mediaInfo.audioSampleRate;
             meta.channelCount = mediaInfo.audioChannelCount;
+            meta.bitDepth = bitDepth;
             meta.codec = mediaInfo.audioCodec;
             meta.originalCodec = meta.codec;
-            meta.config = specDesc.data;
+            meta.config = audioConfig;
             meta.duration = (this._duration / 1e3 * timeScale) | 0;
             meta.id = id++;
             meta.refSampleDuration = 1024 / meta.audioSampleRate * timeScale;
@@ -346,7 +371,6 @@ class MKVDemuxer {
         if (codecs.length > 0) {
             mediaInfo.mimeType += '; codecs="' + codecs.join(',') + '"';
         }
-
         mediaInfo.bitrateMap = [];
         this._mediaInfo = mediaInfo;
         if (mediaInfo.isComplete())
@@ -368,6 +392,57 @@ class MKVDemuxer {
             originalAudioObjectType,
             samplingIndex,
             channelConfig
+        };
+    }
+
+    _parseFlacConfigData(buffer) {
+        let data = new Uint8Array(buffer);
+        let offset = 0;
+        if (data[0] !== 0x66 || data[1] !== 0x4c || data[2] !== 0x61 || data[3] !== 0x43) {
+            throw new IllegalStateException('"fLac" not set in flac config data');
+        }
+        offset += 4;
+
+        let metadataBlocksData = buffer.slice(4, buffer.byteLength);
+        let streamInfoFound = false;
+        let blockSize = 0;
+        while (!streamInfoFound) {
+            let flag = data[offset++];
+            let lastBlock = flag & 0x80;
+            let blockType = flag & 0x7f;
+            if (blockType === 0) { //streamInfo
+                streamInfoFound = true;
+            }
+            blockSize = (data[offset++] << 16) + (data[offset++] << 8) + data[offset++];
+            if (!streamInfoFound) {
+                offset += blockSize;
+            }
+
+        }
+        let minBlockSize = (data[offset++] << 8) + data[offset++];
+        let maxBlockSize = (data[offset++] << 8) + data[offset++];
+        let minFrameSize = (data[offset++] << 16) + (data[offset++] << 8) + data[offset++];
+        let maxFrameSize = (data[offset++] << 16) + (data[offset++] << 8) + data[offset++];
+        let s1 = data[offset++], s2 = data[offset++], s3 = data[offset++], s4 = data[offset++];
+        let sampleRate = (s1 << 12) + (s2 << 4) + (s3 >> 4);
+        let channelCount = (s3 >> 1) + 1;
+        let bitDepth = ((s3 & 0x01) << 5) + (s4 >> 4) + 1;
+        let totalSampleCount = (s4 & 0x0f) * 0x100000000 + (data[offset++] << 24)
+            + (data[offset++] << 16) + (data[offset++] << 8) + data[offset++];
+        let originmd5 = buffer.slice(offset, offset + 16);
+
+        return {
+            data,
+            metadataBlocksData,
+            minBlockSize,
+            maxBlockSize,
+            minFrameSize,
+            maxFrameSize,
+            sampleRate,
+            channelCount,
+            bitDepth,
+            totalSampleCount,
+            originmd5
         };
     }
 

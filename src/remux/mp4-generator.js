@@ -30,7 +30,7 @@ class MP4 {
             stco: [], stsc: [], stsd: [], stsz: [],
             stts: [], tfdt: [], tfhd: [], traf: [],
             trak: [], trun: [], trex: [], tkhd: [],
-            vmhd: [], smhd: [], '.mp3': []
+            vmhd: [], smhd: [], '.mp3': [], fLaC: [], dfLa: []
         };
 
         for (let name in MP4.types) {
@@ -311,8 +311,8 @@ class MP4 {
             MP4.box(MP4.types.stsc, MP4.constants.STSC),  // Sample-To-Chunk
             MP4.box(MP4.types.stsz, MP4.constants.STSZ),  // Sample size
             MP4.box(MP4.types.stco, MP4.constants.STCO)   // Chunk offset
-        ); 
-        return result; 
+        );
+        return result;
     }
 
     // Sample description box
@@ -320,6 +320,8 @@ class MP4 {
         if (meta.type === 'audio') {
             if (meta.codec === 'mp3') {
                 return MP4.box(MP4.types.stsd, MP4.constants.STSD_PREFIX, MP4.mp3(meta));
+            } else if (meta.codec === 'flac') {
+                return MP4.box(MP4.types.stsd, MP4.constants.STSD_PREFIX, MP4.flac(meta));
             }
             // else: aac -> mp4a
             return MP4.box(MP4.types.stsd, MP4.constants.STSD_PREFIX, MP4.mp4a(meta));
@@ -346,6 +348,44 @@ class MP4 {
         ]);
 
         return MP4.box(MP4.types['.mp3'], data);
+    }
+
+    // Encapsulation of FLAC in ISO Base Media File Format
+    // from https://git.xiph.org/?p=flac.git;a=blob;f=doc/isoflac.txt
+    static flac(meta) {
+        let channelCount = meta.channelCount;
+        let sampleRate = meta.audioSampleRate;
+        let bitDepth = meta.bitDepth;
+
+        let data = new Uint8Array([
+            0x00, 0x00, 0x00, 0x00,  // reserved(4)
+            0x00, 0x00, 0x00, 0x01,  // reserved(2) + data_reference_index(2)
+            0x00, 0x00, 0x00, 0x00,  // reserved: 2 * 4 bytes
+            0x00, 0x00, 0x00, 0x00,
+            0x00, channelCount,      // channelCount(2)
+            0x00, bitDepth & 0xFF,              // sampleSize(2)
+            0x00, 0x00, 0x00, 0x00,  // reserved(4)
+            (sampleRate >>> 8) & 0xFF,  // Audio sample rate
+            (sampleRate) & 0xFF,
+            0x00, 0x00
+        ]);
+
+        return MP4.box(MP4.types.fLaC, data, MP4.dfLa(meta));
+    }
+
+    static dfLa(meta) {
+        let config = new Uint8Array(meta.config);// FLACMetadataBlock array
+        let len = config.byteLength;
+        let data = new Uint8Array(len + 4);
+        // reserved(4) version(1) flags(3)
+        data[0] = 0x00;
+        data[1] = 0x00;
+        data[2] = 0x00;
+        data[3] = 0x00;
+        for (let i = 0, offset = 4; i < len; i++) {
+            data[i + offset] = config[i];
+        }
+        return MP4.box(MP4.types.dfLa, data);
     }
 
     static mp4a(meta) {
