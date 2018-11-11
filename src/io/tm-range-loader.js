@@ -26,16 +26,15 @@ import { RuntimeException } from '../utils/exception.js';
 class TMRangeLoader extends BaseLoader {
 
     static isSupported() {
-        // just return true you known need Tampermonkey
-        return true;
+        return typeof GM_xmlhttpRequest !== 'undefined';
     }
 
     constructor(seekHandler, config) {
         super('tm-range-loader');
         this.TAG = 'TMRangeLoader';
 
-        //it must be passed 
-        this.GM_xmlhttpRequest = config.tmfunc;
+        //in tamper monkey mode
+        this.GM_xmlhttpRequest = GM_xmlhttpRequest;
 
 
         this._seekHandler = seekHandler;

@@ -20,7 +20,6 @@ import EventEmitter from 'events';
 import Log from '../utils/logger.js';
 import Browser from '../utils/browser.js';
 import MediaInfo from './media-info.js';
-import FLVDemuxer from '../demux/flv-demuxer.js';
 import MP4Demuxer from '../demux/mp4-demuxer.js';
 import MP4Remuxer from '../remux/mp4-remuxer.js';
 import DemuxErrors from '../demux/demux-errors.js';
@@ -244,40 +243,6 @@ class TransmuxingController {
             this._demuxer.timestampBase = this._mediaDataSource.segments[this._currentSegmentIndex].timestampBase;
 
             consumed = this._demuxer.parseChunks(data, byteStart);
-        } else if ((probeData = FLVDemuxer.probe(data)).match) {
-            // Always create new FLVDemuxer
-            this._demuxer = new FLVDemuxer(probeData, this._config);
-
-            if (!this._remuxer) {
-                this._remuxer = new MP4Remuxer(this._config);
-            }
-
-            let mds = this._mediaDataSource;
-            if (mds.duration != undefined && !isNaN(mds.duration)) {
-                this._demuxer.overridedDuration = mds.duration;
-            }
-            if (typeof mds.hasAudio === 'boolean') {
-                this._demuxer.overridedHasAudio = mds.hasAudio;
-            }
-            if (typeof mds.hasVideo === 'boolean') {
-                this._demuxer.overridedHasVideo = mds.hasVideo;
-            }
-
-            this._demuxer.timestampBase = mds.segments[this._currentSegmentIndex].timestampBase;
-
-            this._demuxer.onError = this._onDemuxException.bind(this);
-            this._demuxer.onMediaInfo = this._onMediaInfo.bind(this);
-            this._demuxer.onMetaDataArrived = this._onMetaDataArrived.bind(this);
-            this._demuxer.onScriptDataArrived = this._onScriptDataArrived.bind(this);
-
-            this._remuxer.bindDataSource(this._demuxer
-                .bindDataSource(this._ioctl
-                ));
-
-            this._remuxer.onInitSegment = this._onRemuxerInitSegmentArrival.bind(this);
-            this._remuxer.onMediaSegment = this._onRemuxerMediaSegmentArrival.bind(this);
-
-            consumed = this._demuxer.parseChunks(data, byteStart);
         } else if ((probeData = MP4Demuxer.probe(data)).match) {
             // Copied from new FLVDecuxer
             // Always create new MP4Demuxer
@@ -306,11 +271,11 @@ class TransmuxingController {
             consumed = this._demuxer.parseChunks(data, byteStart);
         } else {
             probeData = null;
-            Log.e(this.TAG, 'Non-FLV, Unsupported media type!');
+            Log.e(this.TAG, 'only mp4 could be used!');
             Promise.resolve().then(() => {
                 this._internalAbort();
             });
-            this._emitter.emit(TransmuxingEvents.DEMUX_ERROR, DemuxErrors.FORMAT_UNSUPPORTED, 'Non-FLV, Unsupported media type');
+            this._emitter.emit(TransmuxingEvents.DEMUX_ERROR, DemuxErrors.FORMAT_UNSUPPORTED, 'only mp4 could be used!');
 
             consumed = 0;
         }
